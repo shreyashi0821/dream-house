@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>My Dream House</title>
+<style>
+  :root {
+    --bg: #fdf8ef; --ink: #2b2b3a; --muted: #6b6b7b; --wall: #3a3a4a; --card: #ffffff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font-family: "Segoe UI", system-ui, sans-serif; padding: 24px 16px; }
+  h1 { text-align: center; margin: 0 0 4px; font-size: clamp(24px, 4vw, 40px);
+       background: linear-gradient(90deg,#ff6b6b,#f7b733,#4ecdc4,#5b8def,#b06ab3);
+       -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .sub { text-align: center; color: var(--muted); margin: 0 0 20px; }
+  .wrap { max-width: 1500px; margin: 0 auto; }
+  svg { width: 100%; height: auto; display: block; background: var(--card);
+        border-radius: 16px; box-shadow: 0 6px 24px rgba(0,0,0,.08); }
+  .legend { display: flex; flex-wrap: wrap; gap: 10px 18px; justify-content: center; margin-top: 18px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; }
+  .legend i { width: 16px; height: 16px; border-radius: 4px; border: 1px solid rgba(0,0,0,.25); display: inline-block; }
+  .room-label { font-weight: 700; fill: #2b2b3a; pointer-events: none; }
+  .room-size { fill: #4b4b5b; pointer-events: none; }
+  .room:hover rect.fill { filter: brightness(1.08) saturate(1.2); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🏡 My Dream House — 2D Floor Plan</h1>
+  <p class="sub">4 Bedrooms · Hall · Kitchen · Gaming Room · Closet · 2 Bathrooms · 2 Toilets · Pool · Garden · Parking · Balcony · Terrace Garden</p>
+  <svg id="plan" viewBox="0 0 1440 800" xmlns="http://www.w3.org/2000/svg"></svg>
+  <div class="legend" id="legend"></div>
+</div>
+
+<script>
+const NS = "http://www.w3.org/2000/svg";
+const svg = document.getElementById("plan");
+const el = (tag, attrs, parent = svg) => {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  parent.appendChild(e);
+  return e;
+};
+const text = (g, x, y, str, cls, size, anchor = "middle") => {
+  const t = el("text", { x, y, class: cls, "font-size": size, "text-anchor": anchor }, g);
+  t.textContent = str;
+  return t;
+};
+
+const C = {
+  bedroom: "#ffb3c6", hall: "#ffe08a", kitchen: "#ffb870", gaming: "#c3a6ff",
+  closet: "#f6c1ff", bath: "#9be7ff", toilet: "#b5f0e0", garden: "#9be38a",
+  parking: "#cfd4dc", pool: "#4fc3f7", balcony: "#ffd6a5", terrace: "#7fd88f",
+  stairs: "#e2d6c6", lobby: "#fff3c4", lounge: "#ffe7a3", roof: "#eeeeee"
+};
+
+// Defs: patterns
+const defs = el("defs", {});
+const water = el("pattern", { id: "water", width: 40, height: 20, patternUnits: "userSpaceOnUse" }, defs);
+el("rect", { width: 40, height: 20, fill: C.pool }, water);
+el("path", { d: "M0 10 Q10 4 20 10 T40 10", stroke: "#e1f5fe", "stroke-width": 2, fill: "none", opacity: .8 }, water);
+const grass = el("pattern", { id: "grass", width: 16, height: 16, patternUnits: "userSpaceOnUse" }, defs);
+el("rect", { width: 16, height: 16, fill: C.garden }, grass);
+el("path", { d: "M3 12 l2 -5 l2 5 M10 6 l2 -4 l2 4", stroke: "#6cc35a", "stroke-width": 1.2, fill: "none" }, grass);
+const tgrass = el("pattern", { id: "tgrass", width: 16, height: 16, patternUnits: "userSpaceOnUse" }, defs);
+el("rect", { width: 16, height: 16, fill: C.terrace }, tgrass);
+el("path", { d: "M3 12 l2 -5 l2 5 M10 6 l2 -4 l2 4", stroke: "#4fb563", "stroke-width": 1.2, fill: "none" }, tgrass);
+const tiles = el("pattern", { id: "tiles", width: 20, height: 20, patternUnits: "userSpaceOnUse" }, defs);
+el("rect", { width: 20, height: 20, fill: C.parking }, tiles);
+el("path", { d: "M0 0 H20 V20", stroke: "#b8bec8", fill: "none" }, tiles);
+const deck = el("pattern", { id: "deck", width: 14, height: 14, patternUnits: "userSpaceOnUse" }, defs);
+el("rect", { width: 14, height: 14, fill: "#f4dcb4" }, deck);
+el("path", { d: "M0 7 H14", stroke: "#dfc08c" }, deck);
+const stairsP = el("pattern", { id: "stairsP", width: 80, height: 14, patternUnits: "userSpaceOnUse" }, defs);
+el("rect", { width: 80, height: 14, fill: C.stairs }, stairsP);
+el("path", { d: "M0 0 H80", stroke: "#a89377", "stroke-width": 2 }, stairsP);
+
+// Room drawer: ox/oy = floor offset
+function room(ox, oy, r) {
+  const g = el("g", { class: "room" });
+  const x = ox + r.x, y = oy + r.y;
+  el("rect", { class: "fill", x, y, width: r.w, height: r.h, fill: r.fill,
+               stroke: r.open ? "#7a7a8a" : "var(--wall)",
+               "stroke-width": r.open ? 2 : 5,
+               "stroke-dasharray": r.open ? "8 5" : "none" }, g);
+  const cx = x + r.w / 2, cy = y + r.h / 2 + (r.dy || 0);
+  if (r.icon) text(g, cx, cy - 6, r.icon, "", r.iconSize || 30);
+  text(g, cx, cy + 20, r.name, "room-label", r.fs || 15);
+  if (r.size) text(g, cx, cy + 37, r.size, "room-size", 11);
+  if (r.title) el("title", {}, g).textContent = r.name;
+  return g;
+}
+
+function tree(x, y, r = 16) {
+  el("circle", { cx: x + 3, cy: y + 4, r, fill: "rgba(0,0,0,.12)" });
+  el("circle", { cx: x, cy: y, r, fill: "#3fa34d", stroke: "#2b7a36", "stroke-width": 2 });
+  el("circle", { cx: x - r / 3, cy: y - r / 3, r: r / 2.4, fill: "#5cc06b" });
+}
+function flower(x, y, c) {
+  for (let i = 0; i < 5; i++) {
+    const a = i * 72 * Math.PI / 180;
+    el("circle", { cx: x + Math.cos(a) * 4, cy: y + Math.sin(a) * 4, r: 3, fill: c });
+  }
+  el("circle", { cx: x, cy: y, r: 2.5, fill: "#ffd54f" });
+}
+function door(x, y, size, dir) {
+  // dir: rotation in degrees; draws a door leaf + swing arc
+  const g = el("g", { transform: `translate(${x} ${y}) rotate(${dir})` });
+  el("line", { x1: 0, y1: 0, x2: size, y2: 0, stroke: "#fff", "stroke-width": 7 }, g);
+  el("line", { x1: 0, y1: 0, x2: 0, y2: size, stroke: "#8d6e63", "stroke-width": 2 }, g);
+  el("path", { d: `M ${size} 0 A ${size} ${size} 0 0 1 0 ${size}`, stroke: "#8d6e63", "stroke-width": 1.2, fill: "none", "stroke-dasharray": "3 3" }, g);
+}
+
+// ================= GROUND FLOOR =================
+const G = { x: 20, y: 40 };
+el("rect", { x: G.x + 20, y: G.y + 30, width: 680, height: 720, rx: 14, fill: "#f3f7ee", stroke: "#cbd8bf", "stroke-width": 2 });
+text(svg, G.x + 360, G.y + 18, "GROUND FLOOR", "room-label", 20);
+
+// Road (along the front, beside parking)
+el("rect", { x: G.x + 20, y: G.y + 26, width: 680, height: 22, fill: "#55606e", rx: 6 });
+for (let i = 0; i < 9; i++) el("rect", { x: G.x + 40 + i * 75, y: G.y + 35, width: 40, height: 4, fill: "#fff" });
+text(svg, G.x + 640, G.y + 18, "Main Road 🚗", "room-size", 12);
+
+const ground = [
+  { x: 40,  y: 50,  w: 430, h: 140, fill: "url(#grass)",  name: "", open: true },
+  { x: 230, y: 50,  w: 240, h: 140, fill: "none",         name: "Front Garden", icon: "🌷", size: "30' × 10'", open: true, dy: -10 },
+  { x: 470, y: 50,  w: 210, h: 260, fill: "url(#tiles)",  name: "Parking Area", icon: "🚙", iconSize: 54, size: "16' × 20'", open: true },
+  { x: 40,  y: 190, w: 260, h: 240, fill: C.hall,         name: "Living Hall", icon: "🛋️", iconSize: 40, size: "20' × 18'", fs: 18 },
+  { x: 300, y: 190, w: 170, h: 140, fill: C.kitchen,      name: "Kitchen", icon: "🍳", size: "13' × 11'" },
+  { x: 300, y: 330, w: 85,  h: 100, fill: C.toilet,       name: "Toilet 1", icon: "🚽", iconSize: 22, fs: 12 },
+  { x: 385, y: 330, w: 85,  h: 100, fill: C.bath,         name: "Bathroom 1", icon: "🛁", iconSize: 22, fs: 12 },
+  { x: 470, y: 310, w: 210, h: 200, fill: C.gaming,       name: "Gaming Room", icon: "🎮", iconSize: 42, size: "16' × 15'" },
+  { x: 40,  y: 430, w: 210, h: 170, fill: C.bedroom,      name: "Bedroom 1 (Guest)", icon: "🛏️", iconSize: 36, size: "16' × 13'", fs: 14 },
+  { x: 250, y: 430, w: 80,  h: 170, fill: "url(#stairsP)", name: "Stairs", icon: "⬆️", iconSize: 18, fs: 12 },
+  { x: 330, y: 430, w: 140, h: 80,  fill: C.lobby,        name: "Lobby", icon: "🚪", iconSize: 18, fs: 12, dy: -6 },
+  { x: 330, y: 510, w: 350, h: 240, fill: "url(#deck)",   name: "", open: true },
+  { x: 40,  y: 600, w: 290, h: 150, fill: "url(#grass)",  name: "Back Garden", icon: "🌳", size: "22' × 12'", open: true, dy: -6 },
+];
+ground.forEach(r => room(G.x, G.y, r));
+
+// Swimming pool
+el("rect", { x: G.x + 360, y: G.y + 540, width: 290, height: 180, rx: 18, fill: "url(#water)", stroke: "#0288d1", "stroke-width": 5 });
+el("rect", { x: G.x + 368, y: G.y + 548, width: 274, height: 164, rx: 14, fill: "none", stroke: "#b3e5fc", "stroke-width": 2 });
+text(svg, G.x + 505, G.y + 620, "🏊", "", 34);
+text(svg, G.x + 505, G.y + 650, "Swimming Pool", "room-label", 17);
+text(svg, G.x + 505, G.y + 668, "24' × 14'", "room-size", 11);
+// pool ladder
+for (let i = 0; i < 3; i++) el("line", { x1: G.x + 600, y1: G.y + 548 + i * 8, x2: G.x + 620, y2: G.y + 548 + i * 8, stroke: "#90a4ae", "stroke-width": 2 });
+text(svg, G.x + 400, G.y + 532, "Pool Deck ☀️", "room-size", 11);
+
+// Garden decoration
+tree(G.x + 80, G.y + 90); tree(G.x + 430, G.y + 95, 14); tree(G.x + 70, G.y + 650, 20); tree(G.x + 290, G.y + 710, 16); tree(G.x + 290, G.y + 640, 12);
+[[120,150,"#ff6b9d"],[150,165,"#ffd93d"],[180,150,"#c77dff"],[330,150,"#ff6b6b"],[360,165,"#4dabf7"],[390,150,"#ff922b"],[120,720,"#ff6b9d"],[160,730,"#ffd93d"],[200,720,"#c77dff"]]
+  .forEach(([x,y,c]) => flower(G.x + x, G.y + y, c));
+// Front walkway
+el("rect", { x: G.x + 170, y: G.y + 48, width: 36, height: 142, fill: "#e6d3b3", stroke: "#c9b08a" });
+text(svg, G.x + 188, G.y + 66, "Entry", "room-size", 10);
+
+// Doors (ground)
+door(G.x + 173, G.y + 190, 30, 0);   // main entrance into hall
+door(G.x + 300, G.y + 240, 28, 90);  // hall -> kitchen
+door(G.x + 340, G.y + 430, 22, -90); // lobby -> toilet 1
+door(G.x + 420, G.y + 430, 22, -90); // lobby -> bath 1
+door(G.x + 470, G.y + 440, 26, 90);  // lobby -> gaming
+door(G.x + 120, G.y + 430, 28, 0);   // hall -> bedroom 1
+door(G.x + 470, G.y + 250, 26, 90);  // kitchen -> parking side door
+
+// ================= FIRST FLOOR =================
+const F = { x: 730, y: 40 };
+el("rect", { x: F.x + 20, y: F.y + 30, width: 680, height: 720, rx: 14, fill: "#eef4fb", stroke: "#c3d3e6", "stroke-width": 2 });
+text(svg, F.x + 360, F.y + 18, "FIRST FLOOR", "room-label", 20);
+
+const first = [
+  { x: 40,  y: 110, w: 430, h: 80,  fill: C.balcony, name: "Balcony", icon: "🌅", iconSize: 22, size: "overlooking the front garden", open: true, dy: -10 },
+  { x: 470, y: 50,  w: 210, h: 260, fill: "url(#tgrass)", name: "Terrace Garden", icon: "🪴", iconSize: 36, size: "above parking", open: true },
+  { x: 40,  y: 190, w: 200, h: 220, fill: C.bedroom, name: "Master Bedroom 2", icon: "🛏️", iconSize: 40, size: "16' × 17'", fs: 14 },
+  { x: 240, y: 190, w: 90,  h: 110, fill: C.closet,  name: "Closet Area", icon: "👗", iconSize: 24, fs: 12 },
+  { x: 240, y: 300, w: 90,  h: 110, fill: C.bath,    name: "Bathroom 2", icon: "🚿", iconSize: 24, fs: 12 },
+  { x: 330, y: 190, w: 140, h: 220, fill: C.lounge,  name: "Family Lounge", icon: "📺", iconSize: 30, fs: 13 },
+  { x: 470, y: 310, w: 210, h: 200, fill: C.bedroom, name: "Bedroom 3", icon: "🛏️", iconSize: 40, size: "16' × 15'" },
+  { x: 40,  y: 410, w: 210, h: 190, fill: C.bedroom, name: "Bedroom 4 (Kids)", icon: "🧸", iconSize: 36, size: "16' × 14'", fs: 14 },
+  { x: 250, y: 430, w: 80,  h: 170, fill: "url(#stairsP)", name: "Stairs", icon: "⬇️", iconSize: 18, fs: 12 },
+  { x: 250, y: 410, w: 220, h: 20,  fill: C.lobby,  name: "" },
+  { x: 330, y: 430, w: 140, h: 80,  fill: C.toilet,  name: "Toilet 2", icon: "🚽", iconSize: 22, fs: 12, dy: -6 },
+];
+// open-to-below area over the pool
+el("rect", { x: F.x + 330, y: F.y + 510, width: 350, height: 240, fill: "#dff1fb", stroke: "#9fc7de", "stroke-dasharray": "6 6", "stroke-width": 2 });
+text(svg, F.x + 505, F.y + 630, "Open to sky — pool below 🏊", "room-size", 13);
+el("rect", { x: F.x + 40, y: F.y + 600, width: 290, height: 150, fill: "#e8f3e2", stroke: "#b5d1a8", "stroke-dasharray": "6 6", "stroke-width": 2 });
+text(svg, F.x + 185, F.y + 680, "Back garden below 🌳", "room-size", 13);
+first.forEach(r => room(F.x, F.y, r));
+text(svg, F.x + 360, F.y + 424, "Corridor", "room-size", 10);
+
+// Balcony railing
+for (let i = 0; i <= 43; i++) el("line", { x1: F.x + 40 + i * 10, y1: F.y + 110, x2: F.x + 40 + i * 10, y2: F.y + 118, stroke: "#8d6e63", "stroke-width": 1.5 });
+el("line", { x1: F.x + 40, y1: F.y + 110, x2: F.x + 470, y2: F.y + 110, stroke: "#8d6e63", "stroke-width": 3 });
+// Terrace planters
+[[500,80],[650,80],[500,280],[650,280]].forEach(([x,y]) => tree(F.x + x, F.y + y, 13));
+[[540,90,"#ff6b9d"],[575,90,"#ffd93d"],[610,90,"#c77dff"],[540,285,"#ff922b"],[575,285,"#4dabf7"],[610,285,"#ff6b6b"]]
+  .forEach(([x,y,c]) => flower(F.x + x, F.y + y, c));
+
+// Doors (first floor)
+door(F.x + 150, F.y + 190, 28, 0);   // master -> balcony
+door(F.x + 240, F.y + 230, 24, 90);  // master -> closet
+door(F.x + 240, F.y + 340, 24, 90);  // master -> bath 2 (en-suite)
+door(F.x + 400, F.y + 190, 28, 0);   // lounge -> balcony
+door(F.x + 470, F.y + 230, 26, 90);  // lounge -> terrace
+door(F.x + 470, F.y + 340, 26, 90);  // lounge/corridor -> bedroom 3
+door(F.x + 150, F.y + 410, 26, 0);   // corridor -> bedroom 4
+door(F.x + 380, F.y + 430, 24, 0);   // corridor -> toilet 2
+
+// Compass
+const cp = el("g", { transform: "translate(1410 70)" });
+el("circle", { r: 22, fill: "#fff", stroke: "#2b2b3a", "stroke-width": 2 }, cp);
+el("path", { d: "M0 -18 L6 0 L0 18 L-6 0 Z", fill: "#ff6b6b" }, cp);
+el("path", { d: "M0 0 L6 0 L0 18 L-6 0 Z", fill: "#90a4ae" }, cp);
+text(cp, 0, -26, "N", "room-label", 13);
+
+// Legend
+const legend = [
+  ["Bedrooms (4)", C.bedroom], ["Living Hall", C.hall], ["Kitchen", C.kitchen],
+  ["Gaming Room", C.gaming], ["Closet Area", C.closet], ["Bathrooms (2)", C.bath],
+  ["Toilets (2)", C.toilet], ["Swimming Pool", C.pool], ["Garden", C.garden],
+  ["Terrace Garden", C.terrace], ["Balcony", C.balcony], ["Parking", C.parking],
+  ["Stairs", C.stairs]
+];
+document.getElementById("legend").innerHTML =
+  legend.map(([n, c]) => `<span><i style="background:${c}"></i>${n}</span>`).join("");
+</script>
+</body>
+</html>
