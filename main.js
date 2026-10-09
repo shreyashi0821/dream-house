@@ -8,13 +8,13 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 //  S converts them to metres.
 // =====================================================================
 
-const S = 0.04;                       // metres per plan pixel
+const S = 0.06;                       // metres per plan pixel
 const X = px => (px - 360) * S;       // plan x -> world x
 const Z = py => (py - 400) * S;       // plan y -> world z (north = -z)
-const FH = 3.3;                       // storey height (first floor at FH, roof terrace at 2 * FH)
+const FH = 4.0;                       // storey height (first floor at FH, roof terrace at 2 * FH)
 const WH0 = FH - 0.01, WH1 = FH - 0.2;  // wall heights (ground / first; the first has a 0.2 m roof slab on top)
-const K = 1.12;                       // furniture & decor scale
-const DOOR_H = 2.3, SILL = 0.9, WIN_TOP = 2.3;
+const K = 1.4;                        // furniture & appliance scale
+const DOOR_H = 2.75, SILL = 1.0, WIN_TOP = 2.9;
 const WT = 0.15;                      // wall thickness
 const N = 0, SO = Math.PI, WE = Math.PI / 2, EA = -Math.PI / 2;  // "back against" N/S/W/E wall
 const off = d => 2.5 + d * K / (2 * S);   // plan px from wall line to centre of an object of depth d
@@ -43,7 +43,7 @@ document.getElementById('app').appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 500);
-camera.position.set(32, 26, 36);
+camera.position.set(48, 38, 52);
 
 const pmrem = new THREE.PMREMGenerator(renderer);
 const envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
@@ -84,15 +84,16 @@ const cyl = (p, rt, rb, h, c, x = 0, y = 0, z = 0, seg = 24) => add(p, new THREE
 const sph = (p, r, c, x = 0, y = 0, z = 0, seg = 20) => add(p, new THREE.SphereGeometry(r, seg, Math.ceil(seg * 0.7)), c, x, y, z);
 const G = () => new THREE.Group();
 // put() scales furniture by K, including its height above the floor (y)
-function put(parent, obj, px, py, rot = 0, y = 0) {
+function put(parent, obj, px, py, rot = 0, y = 0, collide = true) {
   obj.position.set(X(px), y * K, Z(py));
   obj.rotation.y = rot;
   obj.scale.setScalar(K);
   parent.add(obj);
+  if (collide && !obj.userData.noCollide) registerObstacle(parent, obj);
   return obj;
 }
 // putAt() hangs things at an absolute height (ceiling fixtures, roof items)
-function putAt(parent, obj, px, py, rot, yAbs) { put(parent, obj, px, py, rot); obj.position.y = yAbs; return obj; }
+function putAt(parent, obj, px, py, rot, yAbs) { put(parent, obj, px, py, rot, 0, false); obj.position.y = yAbs; return obj; }
 
 // ---------- canvas textures ----------
 function ctex(w, h, draw, repeat = true) {
@@ -880,6 +881,7 @@ function umbrella(c = '#ff4d8d') {
   const tex = ctex(256, 64, (gg, W, H) => { for (let i = 0; i < 8; i++) { gg.fillStyle = i % 2 ? '#ffffff' : c; gg.fillRect(i * W / 8, 0, W / 8, H); } }, false);
   add(g, new THREE.ConeGeometry(1.3, 0.5, 16, 1, true), new THREE.MeshStandardMaterial({ map: tex, side: THREE.DoubleSide, roughness: 0.8 }), 0, 2.2, 0);
   sph(g, 0.05, c, 0, 2.48, 0, 10);
+  g.userData.noCollide = true;
   return g;
 }
 const floaters = [];
@@ -892,6 +894,7 @@ function floatRing() {
 // ---- outdoor ----
 function tree(kind = 'round', h = 3) {
   const g = G();
+  g.userData.trunk = true;
   if (kind === 'pine') {
     cyl(g, 0.1, 0.14, h * 0.35, '#6d4c41', 0, 0, 0, 10);
     for (let i = 0; i < 3; i++) add(g, new THREE.ConeGeometry(h * (0.32 - i * 0.07), h * 0.38, 12), M(GREENS[i % 4], 0.9), 0, h * (0.42 + i * 0.2), 0);
@@ -1001,6 +1004,7 @@ function gateArch(text) {
     const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.75, 0.36), new THREE.MeshBasicMaterial({ map: textSign(text, '#ffffff', 1024, 210, 'bold 92px Poppins, sans-serif', '#7b5cff') }));
     sign.position.set(0, 2.41, side * 0.105); if (side < 0) sign.rotation.y = Math.PI; g.add(sign);
   });
+  g.userData.noCollide = true;
   return g;
 }
 function pergola(w = 3.2, d = 3.2, h = 2.4) {
@@ -1011,6 +1015,7 @@ function pergola(w = 3.2, d = 3.2, h = 2.4) {
   // vines
   for (let i = 0; i < 14; i++) sph(g, rr(0.12, 0.2), M(pick(GREENS), 0.9), rr(-w / 2, w / 2), h + 0.25, rr(-d / 2, d / 2), 8);
   for (let i = 0; i < 10; i++) sph(g, 0.05, pick(['#ff70a6', '#c77dff', '#ffffff']), rr(-w / 2, w / 2), h + 0.2, rr(-d / 2, d / 2), 8);
+  g.userData.noCollide = true;
   return g;
 }
 function raisedPlanter(w, d = 0.6) {
@@ -1140,6 +1145,21 @@ const POOL = { x: 380, y: 560, w: 260, h: 150 };
 //  Walls (built from room outlines, with doors / windows / openings)
 // =====================================================================
 const occluders = [[], [], []];   // ground, first floor, roof
+
+// ---------- collision boxes for play mode (world space, with a height range) ----------
+const colliders = [];
+function addCollider(x0, x1, z0, z1, y0, y1) {
+  colliders.push({ x0: Math.min(x0, x1), x1: Math.max(x0, x1), z0: Math.min(z0, z1), z1: Math.max(z0, z1), y0, y1 });
+}
+const baseOf = p => p.userData.baseY ?? 0;
+function registerObstacle(parent, obj) {
+  const base = baseOf(parent);
+  if (obj.userData.trunk) { const p = obj.position; addCollider(p.x - 0.25, p.x + 0.25, p.z - 0.25, p.z + 0.25, base, base + 2.5); return; }
+  obj.updateWorldMatrix(true, true);
+  const b = new THREE.Box3().setFromObject(obj);
+  if (b.isEmpty() || b.min.y > base + 0.6 || b.max.y < base + 0.15) return;   // rugs, wall-mounted and ceiling things
+  addCollider(b.min.x, b.max.x, b.min.z, b.max.z, b.min.y, b.max.y);
+}
 function gapType(gaps, o, at, pos) {
   for (const g of gaps) if (g[0] === o && g[1] === at && pos >= g[2] && pos + 5 <= g[3]) return g[4];
   return 'wall';
@@ -1176,6 +1196,11 @@ function buildWalls(parent, rooms, gaps, H, level) {
       const len = (run.to - run.from) * S, mid = (run.from + run.to) / 2;
       const L = len + (run.type === 'wall' ? WT : 0);
       const cx = o === 'h' ? X(mid) : X(at), cz = o === 'h' ? Z(at) : Z(mid);
+      if (run.type === 'wall' || run.type === 'window') {
+        const b = baseOf(parent);
+        if (o === 'h') addCollider(cx - L / 2, cx + L / 2, cz - WT / 2, cz + WT / 2, b, b + H);
+        else addCollider(cx - WT / 2, cx + WT / 2, cz - L / 2, cz + L / 2, b, b + H);
+      }
       for (const [y0, y1] of pieces(run.type, H)) {
         const geo = o === 'h' ? new THREE.BoxGeometry(L, y1 - y0, WT) : new THREE.BoxGeometry(WT, y1 - y0, L);
         const m = add(parent, geo, fadeMat('#f8f3ea'), cx, (y0 + y1) / 2, cz);
@@ -1235,6 +1260,8 @@ function railing(parent, o, at, from, to, kind = 'glass', h = 1.0) {
   const len = (to - from) * S, mid = (from + to) / 2;
   const cx = o === 'h' ? X(mid) : X(at), cz = o === 'h' ? Z(at) : Z(mid);
   const geo = (w, hh, t) => o === 'h' ? new THREE.BoxGeometry(w, hh, t) : new THREE.BoxGeometry(t, hh, w);
+  const b = baseOf(parent);
+  if (o === 'h') addCollider(X(from), X(to), cz - 0.12, cz + 0.12, b, b + h); else addCollider(cx - 0.12, cx + 0.12, Z(from), Z(to), b, b + h);
   if (kind === 'glass') {
     add(parent, geo(len, h - 0.05, 0.03), glassMat, cx, (h - 0.05) / 2, cz, false);
     add(parent, geo(len + 0.04, 0.05, 0.07), chrome, cx, h, cz);
@@ -1256,6 +1283,7 @@ const site = G(); scene.add(site);
 const ROAD_Z = Z(50) - 1.2 - 3.5;   // road centre line
 const ground = G(); scene.add(ground);
 const upper = G(); upper.position.y = FH; scene.add(upper);
+upper.userData.baseY = FH;
 const upperExtras = [];   // first-floor things that live directly in the scene
 
 // ---------- sky, lights ----------
@@ -1265,15 +1293,15 @@ const nightSky = ctex(1024, 512, (g, w, h) => {
   for (let i = 0; i < 500; i++) { g.fillStyle = `rgba(255,255,255,${rr(0.3, 1)})`; g.fillRect(rr(0, w), rr(0, h * 0.7), rr(1, 2.2), rr(1, 2.2)); }
 }, false);
 scene.background = daySky;
-scene.fog = new THREE.Fog('#cfe6ff', 80, 230);
+scene.fog = new THREE.Fog('#cfe6ff', 120, 300);
 
 const hemi = new THREE.HemisphereLight('#dff1ff', '#8aa86a', 1.25);
 scene.add(hemi);
 const sun = new THREE.DirectionalLight('#fff4e0', 2.6);
-sun.position.set(-18, 34, 20);
+sun.position.set(-26, 50, 30);
 sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
-Object.assign(sun.shadow.camera, { left: -20, right: 20, top: 20, bottom: -20, near: 1, far: 90 });
+sun.shadow.mapSize.set(4096, 4096);
+Object.assign(sun.shadow.camera, { left: -30, right: 30, top: 30, bottom: -30, near: 1, far: 130 });
 sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.02;
 scene.add(sun);
 const amb = new THREE.AmbientLight('#ffffff', 0.25);
@@ -1284,7 +1312,7 @@ const nightLights = [];
 [[170, 300, 2.9, '#ffd9a0'], [385, 260, 2.9, '#fff0d0'], [575, 410, 2.8, '#c77dff'], [145, 515, 2.8, '#ffc8dd'], [400, 470, 2.8, '#ffe8b0'],
  [510, 635, -0.4, '#29d3ff'], [300, 120, 2.6, '#ffd27a'], [180, 680, 2.6, '#ffd27a'],
  [140, 290, FH + 2.6, '#ffd9f0'], [400, 290, FH + 2.6, '#fff0c9'], [575, 410, FH + 2.6, '#cde6ff'], [145, 525, FH + 2.6, '#fff3a8'], [575, 180, FH + 2.5, '#ffd27a']]
-  .forEach(([px, py, y, c]) => { const l = new THREE.PointLight(c, 0, 13, 1.6); l.position.set(X(px), y, Z(py)); scene.add(l); nightLights.push(l); });
+  .forEach(([px, py, y, c]) => { const l = new THREE.PointLight(c, 0, 20, 1.5); l.position.set(X(px), y, Z(py)); scene.add(l); nightLights.push(l); });
 
 // ---------- land, road, hills ----------
 {
@@ -1302,19 +1330,19 @@ const nightLights = [];
 
   // a proper 7 m road with a footpath in front of the plot
   add(site, new THREE.BoxGeometry(300, 0.04, 7), texMat('asphalt', '#4a525e', null, 300, 7), 0, -0.04, ROAD_Z, false);
-  for (let x = -80; x < 80; x += 4) add(site, new THREE.BoxGeometry(2, 0.01, 0.15), '#ffffff', x, -0.015, ROAD_Z, false);
+  for (let x = -100; x < 100; x += 4) add(site, new THREE.BoxGeometry(2, 0.01, 0.15), '#ffffff', x, -0.015, ROAD_Z, false);
   add(site, new THREE.BoxGeometry(300, 0.1, 1.2), '#d7d2cb', 0, -0.03, Z(50) - 0.6, false);
 
   // distant hills
   for (let i = 0; i < 14; i++) {
-    const a = i / 14 * Math.PI * 2 + rr(-0.1, 0.1), r = rr(110, 150);
+    const a = i / 14 * Math.PI * 2 + rr(-0.1, 0.1), r = rr(140, 190);
     const h = add(site, new THREE.SphereGeometry(rr(25, 45), 20, 10, 0, Math.PI * 2, 0, Math.PI / 2), M(pick(['#7fb069', '#6a9e5a', '#8cc084']), 1), Math.cos(a) * r, -1, Math.sin(a) * r, false);
     h.scale.y = rr(0.3, 0.5);
   }
   // neighbourhood trees
   for (let i = 0; i < 70; i++) {
-    const x = rr(-70, 70), z = rr(-70, 70);
-    if (Math.abs(x) < 16 && Math.abs(z) < 17) continue;
+    const x = rr(-100, 100), z = rr(-100, 100);
+    if (Math.abs(x) < 24 && Math.abs(z) < 25) continue;
     if (Math.abs(z - ROAD_Z) < 5) continue;
     const t = tree(pick(['round', 'pine', 'round', 'blossom']), rr(3, 6));
     t.position.set(x, 0, z); site.add(t);
@@ -1358,6 +1386,7 @@ let water;
   water = new THREE.Mesh(wg, new THREE.MeshStandardMaterial({ color: '#2ec8ff', roughness: 0.05, metalness: 0.1, transparent: true, opacity: 0.72, envMap: envTex, emissive: '#0aa6d6', emissiveIntensity: 0.15 }));
   water.position.set(cx, -0.14, cz); site.add(water);
   water.userData.base = wg.attributes.position.array.slice();
+  addCollider(x0, x0 + w, z0, z0 + d, -2, 0.3);   // no swimming (yet!)
   // ladder
   const lad = G(); put(site, lad, 615, 562);
   [-0.22, 0.22].forEach(x => { const r = cyl(lad, 0.025, 0.025, 1.6, chrome, x, -1.2, 0.08, 8); const t = add(lad, new THREE.TorusGeometry(0.15, 0.025, 8, 16, Math.PI), chrome, x, 0.4, -0.07); t.rotation.y = Math.PI / 2; });
@@ -1413,6 +1442,7 @@ function fence(parent, segs) {
     const len = (b - a) * S;
     for (let p = a * S; p <= b * S; p += 0.16) pickets.push(o === 'h' ? [X(0) + p, Z(at)] : [X(at), Z(0) + p]);
     railG.push([o, at, a, b, len]);
+    if (o === 'h') addCollider(X(a), X(b), Z(at) - 0.05, Z(at) + 0.05, 0, 0.9); else addCollider(X(at) - 0.05, X(at) + 0.05, Z(a), Z(b), 0, 0.9);
   }
   const pg = new THREE.BoxGeometry(0.07, 0.9, 0.04); pg.translate(0, 0.45, 0);
   const inst = new THREE.InstancedMesh(pg, M('#ffffff', 0.6), pickets.length);
@@ -1474,6 +1504,8 @@ stairFlights(ground, 0, true);
 {
   const mw = add(ground, new THREE.BoxGeometry(0.12, WH0, 100 * S), M('#f8f3ea', 0.9), X(290), WH0 / 2, Z(520));
   occluders[0].push(mw);
+  addCollider(X(290) - 0.06, X(290) + 0.06, Z(470), Z(570), 0, WH0);       // wall between the two flights
+  addCollider(X(290), X(330), Z(470), Z(570), 0, FH / 2 - 0.1);           // solid underside of the upward flight
 }
 
 // ---------- ground floor ----------
@@ -1583,6 +1615,7 @@ stairFlights(upper, 0, false);
 {
   const mw = add(upper, new THREE.BoxGeometry(0.12, FH, 100 * S), M('#f8f3ea', 0.9), X(290), FH / 2, Z(520));
   occluders[1].push(mw);
+  addCollider(X(290) - 0.06, X(290) + 0.06, Z(470), Z(570), FH, 2 * FH);
 }
 {
   const u = upper;
@@ -1691,8 +1724,9 @@ stairFlights(upper, 0, false);
   const pts = [];
   for (let x = 45; x < 470; x += 8) pts.push([X(x), FH + 1.0 + Math.sin(x * 0.07) * 0.05, Z(112)]);
   for (let i = 0; i < 4; i++) for (let k = 0; k <= 12; k++) {
-    const a = [[530, 135], [620, 135], [620, 225], [530, 225]][i], b = [[620, 135], [620, 225], [530, 225], [530, 135]][i];
-    const t = k / 12; pts.push([X(a[0] + (b[0] - a[0]) * t), FH + 2.55 - Math.sin(t * Math.PI) * 0.25, Z(a[1] + (b[1] - a[1]) * t)]);
+    const hw = 1.6 * K / S, c = [[575 - hw, 180 - hw], [575 + hw, 180 - hw], [575 + hw, 180 + hw], [575 - hw, 180 + hw]];
+    const a = c[i], b = c[(i + 1) % 4];
+    const t = k / 12; pts.push([X(a[0] + (b[0] - a[0]) * t), FH + 2.4 * K - 0.15 - Math.sin(t * Math.PI) * 0.25, Z(a[1] + (b[1] - a[1]) * t)]);
   }
   const geo = new THREE.SphereGeometry(0.035, 8, 6);
   const cols = ['#ffd27a', '#ff9de2', '#9ad8ff', '#b8ff9a'];
@@ -1707,6 +1741,7 @@ stairFlights(upper, 0, false);
 // ---------- roof: flat cement roof terrace you can walk on ----------
 const roof = G(); roof.position.y = FH + WH1; scene.add(roof);
 const roofTop = G(); roofTop.position.y = 0.2; roof.add(roofTop);       // y = 0 here is the terrace floor (2 * FH)
+roofTop.userData.baseY = 2 * FH;
 {
   const concrete = (w, d) => {
     const t = ctex(256, 256, (g, W, H) => {
@@ -1817,7 +1852,7 @@ function makeShreya() {
   const tag = new THREE.Sprite(new THREE.SpriteMaterial({ map: textSign('Shreya ✨', '#ffffff', 512, 128, 'bold 64px Poppins, sans-serif', '#ff4d8d'), transparent: true }));
   tag.scale.set(0.9, 0.225, 1); tag.position.y = 2.1; tag.renderOrder = 10; root.add(tag);
   root.traverse(o => { if (o.isMesh) o.castShadow = true; });
-  root.scale.setScalar(0.92);
+  root.scale.setScalar(0.88);
   return { root, legs, arms, head, pony };
 }
 const shreya = makeShreya();
@@ -1859,7 +1894,7 @@ const TOUR = [
 //  UI, speech, modes
 // =====================================================================
 const $ = id => document.getElementById(id);
-const ui = { chip: $('chip'), bubble: $('bubble'), say: $('sayText'), tour: $('bTour'), pause: $('bPause'), next: $('bNext'), explore: $('bExplore'), floor: $('bFloor'), voice: $('bVoice'), night: $('bNight') };
+const ui = { play: $('bPlay'), chip: $('chip'), bubble: $('bubble'), say: $('sayText'), tour: $('bTour'), pause: $('bPause'), next: $('bNext'), explore: $('bExplore'), floor: $('bFloor'), voice: $('bVoice'), night: $('bNight') };
 const state = {
   mode: 'intro',          // intro | tour | explore
   step: -1, phase: 'idle', queue: [], t: 0,
@@ -1913,6 +1948,7 @@ function beginTalk() {
   speak(TOUR[state.step].say);
 }
 function startTour() {
+  leavePlay();
   closeIntro();
   stopSpeech();
   state.mode = 'tour'; state.paused = false;
@@ -1927,6 +1963,7 @@ function endTour() {
   setTimeout(() => { if (state.mode === 'tour') enterExplore(true); }, 600);
 }
 function enterExplore(fromTour = false) {
+  leavePlay();
   closeIntro();
   if (!fromTour) stopSpeech();
   state.mode = 'explore'; state.phase = 'idle'; state.paused = false;
@@ -1942,7 +1979,7 @@ function closeIntro() { $('intro').classList.add('gone'); }
 
 ui.tour.onclick = startTour;
 $('iTour').onclick = startTour;
-$('iExplore').onclick = () => { enterExplore(); camera.position.set(30, 24, 32); };
+$('iExplore').onclick = () => { enterExplore(); camera.position.set(44, 36, 48); };
 ui.explore.onclick = () => enterExplore();
 ui.pause.onclick = () => {
   state.paused = !state.paused;
@@ -1996,7 +2033,7 @@ applyDayNight();
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.maxPolarAngle = Math.PI * 0.49;
-controls.minDistance = 4; controls.maxDistance = 95;
+controls.minDistance = 4; controls.maxDistance = 150;
 controls.target.set(0, 1.5, 0);
 controls.enabled = false;
 
@@ -2025,6 +2062,324 @@ function drawMinimap(level) {
 }
 
 // =====================================================================
+//  Play mode: drive Shreya yourself
+// =====================================================================
+const play = { vy: 0, onGround: true, camYaw: Math.PI, dragYaw: 0, pitch: 0.42, dist: 8, chipT: 0, hintTimer: null, route: [], arriveSay: null, stuckT: 0, grab: false,
+  joy: { x: 0, y: 0 }, turnV: 0, fwdV: 0 };
+const keys = {};
+const KEYMAP = { ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down', ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right', ShiftLeft: 'run', ShiftRight: 'run', Space: 'jump' };
+const clamp = THREE.MathUtils.clamp;
+
+// walkable surfaces (plan rects) above the ground
+const SURF1 = [...ROOMS1.map(r => r.slab || r), ...OUT1];
+const SURF2 = [[40, 190, 430, 260], [40, 450, 210, 150], [330, 450, 140, 60], [250, 450, 80, 20], [470, 310, 210, 200]].map(([x, y, w, h]) => ({ x, y, w, h }));
+const inRect = (px, py, r) => px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h;
+const toPlan = (x, z) => [x / S + 360, z / S + 400];
+
+// highest floor / stair surface that is not more than a step above the feet
+function groundAt(x, z, y) {
+  const [px, py] = toPlan(x, z), lim = y + 0.5;
+  let best = -Infinity;
+  const consider = h => { if (h <= lim && h > best) best = h; };
+  consider(0);
+  for (const r of SURF1) if (inRect(px, py, r)) consider(FH);
+  for (const r of SURF2) if (inRect(px, py, r)) consider(2 * FH);
+  for (const base of [0, FH]) {
+    if (px >= 250 && px < 290 && py >= 470 && py <= 570) consider(base + (py - 470) / 100 * FH / 2);
+    if (px >= 250 && px <= 330 && py > 570 && py <= 600) consider(base + FH / 2);
+    if (px >= 290 && px <= 330 && py >= 470 && py <= 570) consider(base + FH / 2 + (570 - py) / 100 * FH / 2);
+  }
+  return best;
+}
+function blocked(x, z, y) {
+  if (Math.abs(x) > 105 || Math.abs(z) > 105) return true;
+  const R = 0.25;
+  for (const c of colliders) {
+    if (c.y1 - 0.05 <= y || c.y0 >= y + 1.75) continue;
+    const dx = x - clamp(x, c.x0, c.x1), dz = z - clamp(z, c.z0, c.z1);
+    if (dx * dx + dz * dz < R * R) return true;
+  }
+  return false;
+}
+function insideGround(p) {
+  if (p.y > 1) return false;
+  const [px, py] = toPlan(p.x, p.z);
+  return ROOMS0.some(r => inRect(px, py, r));
+}
+function roomAt(p) {
+  const [px, py] = toPlan(p.x, p.z);
+  if (p.y > 2 * FH - 0.5) return ['Roof Terrace', 2];
+  const level = p.y > FH - 0.5 ? 1 : 0;
+  const r = (level ? [...ROOMS1, ...OUT1] : [...ROOMS0, ...OUT0]).find(rc => inRect(px, py, rc));
+  return [r ? r.name : (py < 50 ? 'Street' : 'Outside'), level];
+}
+
+// ---- navigation graph built from the tour walkways ----
+const NAV = [];
+function navNode(px, py, y) {
+  let n = NAV.find(m => Math.abs(m.px - px) < 1 && Math.abs(m.py - py) < 1 && Math.abs(m.y - y) < 0.05);
+  if (!n) { n = { px, py, y, x: X(px), z: Z(py), links: new Set() }; NAV.push(n); }
+  return n;
+}
+const linkNav = (a, b) => { if (a !== b) { a.links.add(b); b.links.add(a); } };
+const STEP_NODE = [];
+{
+  let prev = navNode(188, 30, 0);
+  TOUR.forEach((st, i) => {
+    for (const p of st.path) { const n = navNode(p[0], p[1], p[2] !== undefined ? p[2] : st.floor * FH); linkNav(prev, n); prev = n; }
+    STEP_NODE[i] = prev;
+  });
+  // nodes in the same room (same level) can walk straight to each other
+  const areas = [...ROOMS0.map(r => [r, 0]), ...OUT0.filter(o => o.name !== 'Pool Deck').map(r => [r, 0]),
+    ...ROOMS1.map(r => [r, FH]), ...OUT1.map(r => [r, FH]), ...SURF2.map(r => [r, 2 * FH])];
+  for (const [r, y] of areas) {
+    const inside = NAV.filter(n => Math.abs(n.y - y) < 0.05 && inRect(n.px, n.py, r));
+    for (const a of inside) for (const b of inside) linkNav(a, b);
+  }
+}
+function clearLine(ax, az, bx, bz, y) {
+  const d = Math.hypot(bx - ax, bz - az), n = Math.ceil(d / 0.15);
+  for (let i = 1; i <= n; i++) { const t = i / n; if (blocked(ax + (bx - ax) * t, az + (bz - az) * t, y)) return false; }
+  return true;
+}
+function nearestNode(x, z, y) {
+  const cands = NAV.filter(n => Math.abs(n.y - y) < 1.2).sort((a, b) => Math.hypot(a.x - x, a.z - z) - Math.hypot(b.x - x, b.z - z));
+  return cands.slice(0, 12).find(n => clearLine(x, z, n.x, n.z, y)) || cands[0];
+}
+function shortestPath(a, b) {
+  const dist = new Map([[a, 0]]), prev = new Map(), open = new Set([a]);
+  while (open.size) {
+    let u = null; for (const n of open) if (!u || dist.get(n) < dist.get(u)) u = n;
+    open.delete(u);
+    if (u === b) break;
+    for (const v of u.links) {
+      const nd = dist.get(u) + Math.hypot(v.x - u.x, v.z - u.z, (v.y - u.y) * 2);
+      if (nd < (dist.get(v) ?? Infinity)) { dist.set(v, nd); prev.set(v, u); open.add(v); }
+    }
+  }
+  const out = []; for (let n = b; n; n = prev.get(n)) out.unshift(n);
+  return out[0] === a ? out : [b];
+}
+function routeTo(x, z, y, say = null) {
+  const p = shreya.root.position;
+  const a = nearestNode(p.x, p.z, p.y), b = nearestNode(x, z, y);
+  const pts = clearLine(p.x, p.z, x, z, p.y) && Math.abs(p.y - y) < 0.3 ? [] : shortestPath(a, b).map(n => new THREE.Vector3(n.x, n.y, n.z));
+  pts.push(new THREE.Vector3(x, y, z));
+  play.route = pts; play.arriveSay = say; play.stuckT = 0;
+  ui.bubble.classList.add('hide'); stopSpeech();
+}
+function goToStep(i) {
+  const n = STEP_NODE[i], st = TOUR[i];
+  routeTo(n.x, n.z, n.y, st.say);
+  setChip(`Walking to ${st.room}…`);
+}
+
+function updatePlay(dt) {
+  const r = shreya.root.position;
+  if (play.grab) return { moving: true, gait: 4 };
+  const dead = v => Math.abs(v) < 0.15 ? 0 : v;
+  const turn = clamp((keys.left ? 1 : 0) - (keys.right ? 1 : 0) - dead(play.joy.x), -1, 1);
+  play.turnV += (turn * 2.6 - play.turnV) * (1 - Math.exp(-dt * 10));     // eased turning
+  heading += play.turnV * dt;
+  let fwd = clamp((keys.up ? 1 : 0) - (keys.down ? 1 : 0) - dead(play.joy.y), -1, 1);
+  if (fwd || turn || keys.jump) play.route = [];          // manual control cancels auto-walk
+  let autoWalk = false;
+  if (play.route.length) {
+    // auto-walk along the route (the route is known to be walkable)
+    const t = play.route[0];
+    const dx = t.x - r.x, dz = t.z - r.z, d = Math.hypot(dx, dz);
+    if (d < 0.2) {
+      play.route.shift();
+      if (!play.route.length && play.arriveSay) { speak(play.arriveSay); play.arriveSay = null; }
+    } else {
+      heading = angLerp(heading, Math.atan2(dx, dz), Math.min(1, dt * 10));
+      const step = Math.min(d, (play.route.length > 3 ? 5 : 3.2) * dt);
+      r.x += dx / d * step; r.z += dz / d * step;
+      autoWalk = true;
+    }
+  }
+  if (autoWalk) fwd = 0;
+  const running = (keys.run && fwd > 0) || (autoWalk && play.route.length > 3);
+  const speed = fwd > 0 ? (running ? 7 : 3.2) : 2;
+  play.fwdV += (fwd * speed - play.fwdV) * (1 - Math.exp(-dt * 7));       // eased start / stop
+  if (autoWalk) play.fwdV = 0;
+  const mv = play.fwdV * dt;
+  const n = Math.max(1, Math.ceil(Math.abs(mv) / 0.08));
+  const sx = Math.sin(heading) * mv / n, sz = Math.cos(heading) * mv / n;
+  for (let i = 0; i < n; i++) {
+    const stuck = blocked(r.x, r.z, r.y);
+    if (stuck || !blocked(r.x + sx, r.z, r.y)) r.x += sx;     // slide along walls
+    if (stuck || !blocked(r.x, r.z + sz, r.y)) r.z += sz;
+  }
+  // gravity, stairs and jumping
+  const g = groundAt(r.x, r.z, r.y);
+  if (keys.jump && play.onGround) { play.vy = 4.6; play.onGround = false; }
+  if (play.onGround) { if (r.y - g <= 0.5) r.y = g; else play.onGround = false; }
+  if (!play.onGround) {
+    play.vy -= 13 * dt; r.y += play.vy * dt;
+    if (r.y <= g) { r.y = g; play.vy = 0; play.onGround = true; }
+  }
+  // the camera drifts back behind her while she walks
+  if (fwd !== 0 && !drag) play.dragYaw *= Math.exp(-dt * 1.5);
+  // room chip
+  play.chipT -= dt;
+  if (play.chipT <= 0) { play.chipT = 0.25; const [name, lvl] = roomAt(r); setChip(`${name} · ${floorName(lvl)}`); }
+  // speech bubble while exploring
+  if (!ui.bubble.classList.contains('hide')) {
+    state.t += dt;
+    ui.say.textContent = state.text.slice(0, Math.min(state.text.length, Math.floor(state.t * 38)));
+    const done = state.voiceUsed ? (state.talkDone && state.t > 1.2) || state.t > state.minTalk * 3 : state.t > state.minTalk + 1.5;
+    if (done) ui.bubble.classList.add('hide');
+  }
+  if (autoWalk) return { moving: true, gait: running ? 14 : 9 };
+  const v = play.fwdV;
+  return { moving: Math.abs(v) > 0.15 || Math.abs(play.turnV) > 0.2, gait: Math.abs(v) < 0.15 ? 6 : v > 0 ? 2.6 * v + 1 : 3.5 * v };
+}
+function updatePlayCamera(dt) {
+  const p = shreya.root.position;
+  play.camYaw = angLerp(play.camYaw, heading + Math.PI + play.dragYaw, 1 - Math.exp(-dt * 5));
+  const cp = Math.cos(play.pitch), sp = Math.sin(play.pitch);
+  tmp.set(p.x + Math.sin(play.camYaw) * cp * play.dist, p.y + 1.3 + sp * play.dist, p.z + Math.cos(play.camYaw) * cp * play.dist);
+  camState.pos.lerp(tmp, 1 - Math.exp(-dt * 8));
+  camState.look.lerp(tmp.set(p.x, p.y + 1.3, p.z), 1 - Math.exp(-dt * 12));
+  camera.position.copy(camState.pos);
+  camera.lookAt(camState.look);
+}
+function startPlay() {
+  const fromIntro = state.mode === 'intro';
+  closeIntro(); stopSpeech();
+  state.mode = 'play'; state.phase = 'idle'; state.paused = false;
+  controls.enabled = false;
+  ui.bubble.classList.add('hide');
+  ui.explore.classList.remove('on'); ui.play.classList.add('on');
+  ui.pause.disabled = true; ui.next.disabled = true; ui.tour.textContent = '▶ Tour';
+  const r = shreya.root.position;
+  if (fromIntro || blocked(r.x, r.z, r.y)) { r.set(X(188), 0, Z(30)); heading = 0; }
+  play.route = []; play.grab = false;
+  play.vy = 0; play.onGround = true; play.dragYaw = 0; play.camYaw = heading + Math.PI;
+  camState.pos.copy(camera.position);
+  $('hint').classList.remove('hide'); $('pad').classList.remove('hide');
+  document.body.classList.add('playing');
+  clearTimeout(play.hintTimer);
+  play.hintTimer = setTimeout(() => $('hint').classList.add('hide'), 15000);
+}
+function leavePlay() {
+  for (const k in keys) keys[k] = false;
+  play.joy.x = play.joy.y = 0; play.fwdV = play.turnV = 0;
+  ui.play.classList.remove('on');
+  $('hint').classList.add('hide'); $('pad').classList.add('hide');
+  document.body.classList.remove('playing');
+}
+addEventListener('keydown', e => {
+  if (state.mode !== 'play') return;
+  const k = KEYMAP[e.code];
+  if (k) { keys[k] = true; e.preventDefault(); }
+  if (e.code === 'KeyR') { play.dragYaw = 0; play.pitch = 0.42; play.dist = 8; }
+  if (e.code === 'KeyH') $('hint').classList.toggle('hide');
+});
+addEventListener('keyup', e => { const k = KEYMAP[e.code]; if (k) keys[k] = false; });
+addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+let drag = null;
+const pointer = new THREE.Vector2(), pickRay = new THREE.Raycaster();
+const isShown = o => { for (let p = o; p; p = p.parent) if (!p.visible) return false; return true; };
+const isShreya = o => { for (let p = o; p; p = p.parent) if (p === shreya.root) return true; return false; };
+function pickAt(e) {
+  pointer.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+  pickRay.setFromCamera(pointer, camera);
+  return pickRay.intersectObjects(scene.children, true).filter(h => h.object.isMesh && isShown(h.object) &&
+    !(h.object.material && h.object.material.transparent && h.object.material.opacity < 0.5) && !h.object.isInstancedMesh);
+}
+function floorUnder(e) {
+  const hit = pickAt(e).find(h => !isShreya(h.object));
+  if (!hit) return null;
+  const g = groundAt(hit.point.x, hit.point.z, hit.point.y + 0.1);
+  return { x: hit.point.x, z: hit.point.z, y: g };
+}
+renderer.domElement.addEventListener('pointerdown', e => {
+  if (state.mode !== 'play') return;
+  const first = pickAt(e)[0];
+  drag = { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, t: performance.now() };
+  if (first && isShreya(first.object)) {           // grab Shreya
+    play.grab = true; play.route = []; drag.grab = true;
+    renderer.domElement.style.cursor = 'grabbing';
+    try { renderer.domElement.setPointerCapture(e.pointerId); } catch { /* synthetic pointer */ }
+  }
+});
+addEventListener('pointerup', e => {
+  if (drag && state.mode === 'play') {
+    const moved = Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy);
+    if (drag.grab) {
+      play.grab = false; play.onGround = false; play.vy = 0;
+      renderer.domElement.style.cursor = '';
+      if (moved < 6) speak("Hi! Click anywhere and I'll walk there, or pick a place from the Go to menu!");
+    } else if (moved < 6 && performance.now() - drag.t < 500) {
+      const f = floorUnder(e);
+      if (f && !blocked(f.x, f.z, f.y)) { routeTo(f.x, f.z, f.y); showMarker(f); }
+    }
+  }
+  drag = null;
+});
+addEventListener('pointermove', e => {
+  if (!drag || state.mode !== 'play') return;
+  if (drag.grab) {
+    const f = floorUnder(e);
+    const r = shreya.root.position;
+    if (f && Math.abs(f.y - r.y) < 4.5 && !blocked(f.x, f.z, f.y)) r.set(f.x, f.y + 0.45, f.z);
+    return;
+  }
+  play.dragYaw -= (e.clientX - drag.x) * 0.006;
+  play.pitch = clamp(play.pitch + (e.clientY - drag.y) * 0.004, 0.08, 1.35);
+  drag.x = e.clientX; drag.y = e.clientY;
+});
+// a little pulsing ring where you clicked
+const marker = new THREE.Mesh(new THREE.RingGeometry(0.25, 0.38, 32), new THREE.MeshBasicMaterial({ color: '#ff4d8d', transparent: true, opacity: 0, depthWrite: false }));
+marker.rotation.x = -Math.PI / 2; scene.add(marker);
+function showMarker(f) { marker.position.set(f.x, f.y + 0.03, f.z); marker.material.opacity = 1; marker.scale.setScalar(1); }
+// "Go to" menu
+{
+  const sel = $('goto');
+  TOUR.forEach((st, i) => {
+    if (['Welcome', 'Staircase', 'Goodbye!'].includes(st.room)) return;
+    const o = document.createElement('option'); o.value = i; o.textContent = st.room + (st.floor === 2 ? ' (roof)' : st.floor ? ' (1st floor)' : '');
+    sel.appendChild(o);
+  });
+  sel.onchange = () => {
+    const i = +sel.value; sel.value = '';
+    if (Number.isNaN(i)) return;
+    if (state.mode !== 'play') startPlay();
+    goToStep(i);
+    sel.blur();
+  };
+}
+renderer.domElement.addEventListener('wheel', e => { if (state.mode === 'play') play.dist = clamp(play.dist * (1 + e.deltaY * 0.001), 2.5, 16); }, { passive: true });
+// on-screen joystick
+{
+  const joy = $('joy'), knob = $('knob');
+  let id = null;
+  const setFrom = e => {
+    const r = joy.getBoundingClientRect(), R = r.width / 2 - 10;
+    let dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
+    const d = Math.hypot(dx, dy); if (d > R) { dx *= R / d; dy *= R / d; }
+    knob.style.transform = `translate(${dx}px, ${dy}px)`;
+    play.joy.x = dx / R; play.joy.y = dy / R;
+  };
+  joy.addEventListener('pointerdown', e => { e.preventDefault(); id = e.pointerId; try { joy.setPointerCapture(id); } catch { /* synthetic pointer */ } joy.classList.add('active'); setFrom(e); });
+  joy.addEventListener('pointermove', e => { if (e.pointerId === id) setFrom(e); });
+  const end = e => { if (e.pointerId !== id) return; id = null; play.joy.x = play.joy.y = 0; knob.style.transform = ''; joy.classList.remove('active'); };
+  joy.addEventListener('pointerup', end); joy.addEventListener('pointercancel', end);
+}
+// on-screen buttons
+document.querySelectorAll('#pad button').forEach(b => {
+  const k = b.dataset.k;
+  const on = e => { e.preventDefault(); if (k === 'run') { keys.run = !keys.run; b.classList.toggle('on', keys.run); } else keys[k] = true; };
+  const off = () => { if (k !== 'run') keys[k] = false; };
+  b.addEventListener('pointerdown', on);
+  ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => b.addEventListener(ev, off));
+});
+ui.play.onclick = startPlay;
+$('iPlay').onclick = startPlay;
+
+// =====================================================================
 //  Animation loop
 // =====================================================================
 const clock = new THREE.Clock();
@@ -2034,13 +2389,14 @@ let walkPhase = 0, mmTimer = 0;
 
 function updateShreya(dt, time) {
   const r = shreya.root;
-  let walking = false, talking = false;
-  if (state.mode === 'tour' && !state.paused) {
+  let walking = false, talking = false, gait = 9;
+  if (state.mode === 'play') { const m = updatePlay(dt); walking = m.moving; gait = m.gait; talking = !walking && !ui.bubble.classList.contains('hide'); }
+  else if (state.mode === 'tour' && !state.paused) {
     if (state.phase === 'walk') {
       if (state.queue.length) {
         const target = state.queue[0];
         tmp.subVectors(target, r.position);
-        const dist = tmp.length(), stepLen = 2.3 * dt;
+        const dist = tmp.length(), stepLen = 3.4 * dt;
         if (dist <= stepLen) { r.position.copy(target); state.queue.shift(); }
         else {
           r.position.addScaledVector(tmp, stepLen / dist);
@@ -2074,7 +2430,7 @@ function updateShreya(dt, time) {
   // limbs
   const [legL, legR] = shreya.legs, [armL, armR] = shreya.arms;
   if (walking) {
-    walkPhase += dt * 9;
+    walkPhase += dt * gait;
     const s = Math.sin(walkPhase);
     legL.rotation.x = s * 0.55; legR.rotation.x = -s * 0.55;
     armL.rotation.x = -s * 0.5; armR.rotation.x = s * 0.5;
@@ -2098,31 +2454,41 @@ function updateShreya(dt, time) {
     }
     shreya.pony.rotation.x = 0.15 + Math.sin(time * 2) * 0.05;
   }
+  if (state.mode === 'play' && play.grab) {            // dangling while carried
+    legL.rotation.x = Math.sin(time * 8) * 0.5; legR.rotation.x = -Math.sin(time * 8) * 0.5;
+    armL.rotation.z = -2.6; armR.rotation.z = 2.6;
+  } else if (state.mode === 'play' && !play.onGround) {      // jump pose
+    legL.rotation.x = 0.6; legR.rotation.x = -0.35;
+    armL.rotation.z = -1.3; armR.rotation.z = 1.3;
+  }
 }
 
 function upperVisible() {
   if (state.mode === 'intro') return true;
+  if (state.mode === 'play') { const p = shreya.root.position; return p.y > 1.0 || !insideGround(p); }
   if (state.mode === 'tour') { const st = TOUR[state.step]; return (st && st.upper && state.step < 2) || shreya.root.position.y > 1.0; }
   return state.floorView !== 'ground';
 }
 function roofVisible() {
   if (state.mode === 'intro') return true;
+  if (state.mode === 'play') { const p = shreya.root.position; return p.y > FH + 0.6 || (p.y < 1 && !insideGround(p)); }
   if (state.mode === 'tour') return (state.step < 2 && shreya.root.position.y < 1.0) || shreya.root.position.y > FH + 0.6;
   return state.floorView === 'roof';
 }
 function updateCamera(dt, time) {
   if (state.mode === 'intro') {
     const a = time * 0.08;
-    camera.position.set(Math.sin(a) * 40, 23, Math.cos(a) * 40);
+    camera.position.set(Math.sin(a) * 60, 34, Math.cos(a) * 60);
     camera.lookAt(0, 3, 0);
     return;
   }
   if (state.mode === 'explore') { controls.update(); return; }
+  if (state.mode === 'play') { updatePlayCamera(dt); return; }
   // tour: follow behind Shreya, slowly
   const p = shreya.root.position;
   const outside = state.step <= 2;
   camState.yaw = angLerp(camState.yaw, heading + Math.PI, Math.min(1, dt * 1.2));
-  const dist = outside ? 12 : 6.6, hgt = outside ? 8 : 5.6;
+  const dist = outside ? 16 : 8.5, hgt = outside ? 10 : 7;
   tmp.set(p.x + Math.sin(camState.yaw) * dist, p.y + hgt, p.z + Math.cos(camState.yaw) * dist);
   const k = 1 - Math.exp(-dt * 2.2);
   camState.pos.lerp(tmp, k);
@@ -2132,12 +2498,12 @@ function updateCamera(dt, time) {
 }
 
 function updateFading(dt) {
-  const fadeOn = state.mode === 'tour';
+  const fadeOn = state.mode === 'tour' || state.mode === 'play';
   const lists = [...occluders[0], ...(upper.visible ? occluders[1] : []), ...(roof.visible ? occluders[2] : [])];
   for (const arr of occluders) for (const m of arr) m.material.userData.target = 1;
   if (fadeOn) {
     // cast a fan of rays from the camera towards Shreya and what she is showing
-    const p = shreya.root.position, st = TOUR[state.step];
+    const p = shreya.root.position, st = state.mode === 'tour' ? TOUR[state.step] : null;
     const side = new THREE.Vector3(Math.cos(heading), 0, -Math.sin(heading));
     const targets = [];
     for (const y of [0.3, 1.2, 2.0]) for (const s of [-1.6, -0.8, 0, 0.8, 1.6]) targets.push(new THREE.Vector3(p.x + side.x * s, p.y + y, p.z + side.z * s));
@@ -2165,6 +2531,7 @@ function animate() {
   updateFading(dt);
 
   spinners.forEach(s => s.obj.rotation.y += s.speed * dt);
+  if (marker.material.opacity > 0) { marker.material.opacity = Math.max(0, marker.material.opacity - dt * 0.7); marker.scale.setScalar(1 + (1 - marker.material.opacity) * 0.8); }
   discoBalls.forEach(b => b.rotation.y += dt * 0.8);
   swings.forEach(s => s.obj.rotation.x = Math.sin(time * 1.6 + s.phase) * 0.35);
   ledMats.forEach(m => m.color.setHSL((m.userData.h + time * 0.08) % 1, 1, 0.55));

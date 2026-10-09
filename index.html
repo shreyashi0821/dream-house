@@ -50,9 +50,35 @@
   #loading { position: fixed; inset: 0; display: grid; place-items: center; background: #bfe3ff; z-index: 20; font-weight: 600; font-size: 18px; }
   #loading.gone { display: none; }
 
+  #controls select { font: 600 13px Poppins, sans-serif; border: 0; padding: 8px 10px; border-radius: 12px; background: var(--card); color: var(--ink); box-shadow: 0 3px 12px rgba(0,0,0,.12); cursor: pointer; }
+  #intro button.primary.alt { background: linear-gradient(90deg, #2ec4b6, #7b5cff); }
+
+  @media (max-width: 1100px) { body.playing #bubble { bottom: 200px; } }
+  #hint { position: fixed; left: 50%; top: 118px; transform: translateX(-50%); background: rgba(43,33,64,.85); color: #fff; padding: 9px 16px; border-radius: 14px; font-size: 13px; z-index: 6; max-width: calc(100% - 32px); text-align: center; line-height: 1.6; transition: opacity .4s; }
+  #hint b { color: #ffd23f; }
+  #hint.hide { opacity: 0; pointer-events: none; }
+
+  #pad { position: fixed; right: 22px; bottom: 22px; display: flex; align-items: flex-end; gap: 16px; z-index: 7; touch-action: none; user-select: none; -webkit-user-select: none; }
+  #pad.hide { display: none; }
+  #pad .btns { display: flex; flex-direction: column; gap: 12px; align-items: center; }
+  #pad button { width: 64px; height: 64px; border-radius: 50%; border: 0; cursor: pointer; font-size: 22px; line-height: 1; color: #fff; background: rgba(43,33,64,.72); box-shadow: 0 6px 18px rgba(0,0,0,.25), inset 0 -4px 0 rgba(0,0,0,.25); display: grid; place-items: center; backdrop-filter: blur(6px); touch-action: none; }
+  #pad button small { display: block; font: 600 10px Poppins, sans-serif; margin-top: 2px; }
+  #pad button.big { width: 78px; height: 78px; background: linear-gradient(135deg, #ff4d8d, #7b5cff); }
+  #pad button:active, #pad button.on { transform: scale(.94); background: #ffd23f; color: #2b2140; }
+  #joy { position: relative; width: 150px; height: 150px; border-radius: 50%; background: radial-gradient(circle, rgba(255,255,255,.35), rgba(43,33,64,.55)); box-shadow: 0 8px 24px rgba(0,0,0,.25), inset 0 0 0 3px rgba(255,255,255,.5); touch-action: none; cursor: grab; }
+  #joy .ring { position: absolute; inset: 22px; border-radius: 50%; border: 2px dashed rgba(255,255,255,.55); }
+  #joy::before, #joy::after { content: '▲'; position: absolute; left: 50%; transform: translateX(-50%); color: rgba(255,255,255,.8); font-size: 12px; top: 6px; }
+  #joy::after { content: '▼'; top: auto; bottom: 6px; }
+  #knob { position: absolute; left: 50%; top: 50%; width: 62px; height: 62px; margin: -31px 0 0 -31px; border-radius: 50%; background: linear-gradient(135deg, #ff4d8d, #7b5cff); box-shadow: 0 6px 16px rgba(0,0,0,.35), inset 0 -4px 0 rgba(0,0,0,.2); transition: transform .12s ease-out; }
+  #joy.active #knob { transition: none; }
+  #joy.active { cursor: grabbing; }
+
   @media (max-width: 700px) {
+    #pad { right: 10px; bottom: 10px; gap: 10px; }
+    #joy { width: 124px; height: 124px; }
+    #hint { display: none; }
     #minimap { display: none; }
-    #controls { top: auto; bottom: 150px; right: 8px; left: 8px; justify-content: center; max-width: none; }
+    #controls { top: 100px; right: 8px; left: 8px; justify-content: center; max-width: none; }
     #controls button, #controls a { padding: 7px 9px; font-size: 12px; }
     #bubble p { font-size: 13px; }
   }
@@ -73,6 +99,8 @@
 </div>
 
 <div id="controls">
+  <button id="bPlay">🎮 Play</button>
+  <select id="goto" aria-label="Go to a room"><option value="">📍 Go to…</option></select>
   <button id="bTour">▶ Tour</button>
   <button id="bPause" disabled>⏸ Pause</button>
   <button id="bNext" disabled>⏭ Next</button>
@@ -96,11 +124,22 @@
     <h1>Shreya's Dream House</h1>
     <p>4 bedrooms · living hall · kitchen · gaming room · closet · 2 bathrooms · 2 toilets · swimming pool · garden · parking · balcony · terrace garden</p>
     <div class="row">
-      <button id="iTour" class="primary">▶ Take the tour with Shreya</button>
-      <button id="iExplore">🧭 Explore on my own</button>
+      <button id="iPlay" class="primary">🎮 Play as Shreya</button>
+      <button id="iTour" class="primary alt">▶ Guided tour</button>
+      <button id="iExplore">🧭 Just look around</button>
     </div>
-    <small>Turn your sound on, Shreya talks! In explore mode: drag to rotate, scroll to zoom, right-drag to pan.</small>
+    <small>Play: walk with <b>W A S D</b> / arrow keys or the joystick, <b>Shift</b> to run, <b>Space</b> to jump. Click the floor to walk there, drag Shreya to carry her, or pick a room from <b>Go to…</b>. Turn your sound on, Shreya talks!</small>
   </div>
+</div>
+
+<div id="hint" class="hide">🎮 <b>W/↑</b> walk · <b>S/↓</b> back · <b>A D / ← →</b> turn · <b>Shift</b> run · <b>Space</b> jump · <b>click floor</b> walk there · <b>drag Shreya</b> carry her · <b>drag</b> look · <b>scroll</b> zoom · <b>R</b> reset camera · <b>H</b> hide</div>
+
+<div id="pad" class="hide">
+  <div class="btns">
+    <button data-k="run" title="Run (Shift)">🏃<small>Run</small></button>
+    <button data-k="jump" class="big" title="Jump (Space)">⤒<small>Jump</small></button>
+  </div>
+  <div id="joy" title="Drag to move"><div class="ring"></div><div id="knob"></div></div>
 </div>
 
 <div id="loading">🏗️ Building the house…</div>

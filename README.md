@@ -3,6 +3,12 @@
 An interactive 3D dream house built with [three.js](https://threejs.org/), with a guided tour by **Shreya**.
 
 ## Features
+- **🎮 Play as Shreya:** drive her like a game character.
+  - Keyboard: **W/↑** walk, **S/↓** back, **A D / ← →** turn, **Shift** run, **Space** jump, **R** reset camera
+  - On-screen joystick plus Jump and Run buttons (great on phones)
+  - **Click the floor** and she walks there; **drag Shreya** to pick her up and drop her anywhere
+  - **Go to…** menu: choose any room and she walks there by herself (even up the stairs) and tells you about it
+  - She bumps into walls and furniture, walks through doors, and climbs the stairs right up to the roof
 - **Guided tour:** Shreya walks through every room, climbs the stairs and talks about each space (speech uses your browser's voice).
 - **Rooms:** 4 bedrooms, living hall, kitchen, gaming room, walk-in closet, 2 bathrooms, 2 toilets, a swimming pool, front and back gardens, parking, a balcony and a terrace garden.
 - **Appliances and decor:** fridge, hob with chimney, microwave, dishwasher, water purifier, washing machine, ACs, TVs, a gaming PC, arcade machines, a pool table, a piano, a swing set, a car, solar panels and more.
