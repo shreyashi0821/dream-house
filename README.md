@@ -9,6 +9,10 @@ An interactive 3D dream house built with [three.js](https://threejs.org/), with 
   - **Click the floor** and she walks there; **drag Shreya** to pick her up and drop her anywhere
   - **Go to…** menu: choose any room and she walks there by herself (even up the stairs) and tells you about it
   - She bumps into walls and furniture, walks through doors, and climbs the stairs right up to the roof
+  - **🔄 Reset** puts her back at the front gate
+- **🚙 Off-road jeep:** walk up to the orange jeep on the road and press **E** (or Drive). W/S throttle, A/D steer, Shift boost, Space brake. Hit the jump ramps!
+- **🌍 Big open world:** about 800 m × 800 m of hills, forest, rocks, a lake, mountains and an off-road dirt track
+- **🍫 Chocolate House:** Shreya's favourite place, with hundreds of chocolates on the shelves and a three-tier chocolate fountain
 - **Guided tour:** Shreya walks through every room, climbs the stairs and talks about each space (speech uses your browser's voice).
 - **Rooms:** 4 bedrooms, living hall, kitchen, gaming room, walk-in closet, 2 bathrooms, 2 toilets, a swimming pool, front and back gardens, parking, a balcony and a terrace garden.
 - **Appliances and decor:** fridge, hob with chimney, microwave, dishwasher, water purifier, washing machine, ACs, TVs, a gaming PC, arcade machines, a pool table, a piano, a swing set, a car, solar panels and more.

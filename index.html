@@ -54,6 +54,12 @@
   #intro button.primary.alt { background: linear-gradient(90deg, #2ec4b6, #7b5cff); }
 
   @media (max-width: 1100px) { body.playing #bubble { bottom: 200px; } }
+  #prompt { position: fixed; left: 50%; bottom: 120px; transform: translateX(-50%); background: #ff7a1a; color: #fff; font-weight: 600; padding: 10px 18px; border-radius: 999px; box-shadow: 0 8px 24px rgba(255,122,26,.4); z-index: 6; font-size: 14px; animation: bob 1.2s ease-in-out infinite; }
+  #prompt.hide, #speedo.hide { display: none; }
+  @keyframes bob { 50% { transform: translate(-50%, -6px); } }
+  #speedo { position: fixed; right: 270px; bottom: 30px; width: 104px; height: 104px; border-radius: 50%; background: radial-gradient(circle, #2b2140 60%, #ff7a1a 62%, #ffd23f 100%); color: #fff; display: grid; place-content: center; text-align: center; z-index: 6; box-shadow: 0 8px 24px rgba(0,0,0,.3); }
+  #speedo b { font-size: 32px; line-height: 1; }
+  #speedo span { font-size: 11px; opacity: .8; }
   #hint { position: fixed; left: 50%; top: 118px; transform: translateX(-50%); background: rgba(43,33,64,.85); color: #fff; padding: 9px 16px; border-radius: 14px; font-size: 13px; z-index: 6; max-width: calc(100% - 32px); text-align: center; line-height: 1.6; transition: opacity .4s; }
   #hint b { color: #ffd23f; }
   #hint.hide { opacity: 0; pointer-events: none; }
@@ -77,6 +83,9 @@
     #pad { right: 10px; bottom: 10px; gap: 10px; }
     #joy { width: 124px; height: 124px; }
     #hint { display: none; }
+    #speedo { right: auto; left: 12px; bottom: 12px; width: 84px; height: 84px; }
+    #speedo b { font-size: 24px; }
+    #prompt { bottom: 170px; font-size: 12px; }
     #minimap { display: none; }
     #controls { top: 100px; right: 8px; left: 8px; justify-content: center; max-width: none; }
     #controls button, #controls a { padding: 7px 9px; font-size: 12px; }
@@ -101,6 +110,7 @@
 <div id="controls">
   <button id="bPlay">🎮 Play</button>
   <select id="goto" aria-label="Go to a room"><option value="">📍 Go to…</option></select>
+  <button id="bReset" title="Put Shreya back at the front gate">🔄 Reset</button>
   <button id="bTour">▶ Tour</button>
   <button id="bPause" disabled>⏸ Pause</button>
   <button id="bNext" disabled>⏭ Next</button>
@@ -128,19 +138,23 @@
       <button id="iTour" class="primary alt">▶ Guided tour</button>
       <button id="iExplore">🧭 Just look around</button>
     </div>
-    <small>Play: walk with <b>W A S D</b> / arrow keys or the joystick, <b>Shift</b> to run, <b>Space</b> to jump. Click the floor to walk there, drag Shreya to carry her, or pick a room from <b>Go to…</b>. Turn your sound on, Shreya talks!</small>
+    <small>Play: walk with <b>W A S D</b> / arrow keys or the joystick, <b>Shift</b> to run, <b>Space</b> to jump. Click the floor to walk there, drag Shreya to carry her, or pick a room from <b>Go to…</b>. Find the orange jeep on the road and press <b>E</b> to drive it around the off-road world! Turn your sound on, Shreya talks!</small>
   </div>
 </div>
 
-<div id="hint" class="hide">🎮 <b>W/↑</b> walk · <b>S/↓</b> back · <b>A D / ← →</b> turn · <b>Shift</b> run · <b>Space</b> jump · <b>click floor</b> walk there · <b>drag Shreya</b> carry her · <b>drag</b> look · <b>scroll</b> zoom · <b>R</b> reset camera · <b>H</b> hide</div>
+<div id="hint" class="hide">🎮 <b>W/↑</b> walk · <b>S/↓</b> back · <b>A D / ← →</b> turn · <b>Shift</b> run · <b>Space</b> jump · <b>click floor</b> walk there · <b>drag Shreya</b> carry her · <b>drag</b> look · <b>scroll</b> zoom · <b>R</b> reset camera · <b>E</b> drive the jeep · <b>H</b> hide</div>
 
 <div id="pad" class="hide">
   <div class="btns">
     <button data-k="run" title="Run (Shift)">🏃<small>Run</small></button>
     <button data-k="jump" class="big" title="Jump (Space)">⤒<small>Jump</small></button>
+    <button data-k="enter" title="Get in / out of the jeep (E)">🚙<small>Drive</small></button>
   </div>
   <div id="joy" title="Drag to move"><div class="ring"></div><div id="knob"></div></div>
 </div>
+
+<div id="prompt" class="hide">🚙 Press <b>E</b> (or the Drive button) to get in the jeep</div>
+<div id="speedo" class="hide"><b>0</b><span>km/h</span></div>
 
 <div id="loading">🏗️ Building the house…</div>
 
