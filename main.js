@@ -8,14 +8,16 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 //  S converts them to metres.
 // =====================================================================
 
-const S = 0.03;                       // metres per plan pixel
+const S = 0.04;                       // metres per plan pixel
 const X = px => (px - 360) * S;       // plan x -> world x
 const Z = py => (py - 400) * S;       // plan y -> world z (north = -z)
-const FH = 3.0;                       // first-floor level
-const WH0 = 2.99, WH1 = 2.8;          // wall heights (ground / first)
+const FH = 3.3;                       // storey height (first floor at FH, roof terrace at 2 * FH)
+const WH0 = FH - 0.01, WH1 = FH - 0.2;  // wall heights (ground / first; the first has a 0.2 m roof slab on top)
+const K = 1.12;                       // furniture & decor scale
+const DOOR_H = 2.3, SILL = 0.9, WIN_TOP = 2.3;
 const WT = 0.15;                      // wall thickness
 const N = 0, SO = Math.PI, WE = Math.PI / 2, EA = -Math.PI / 2;  // "back against" N/S/W/E wall
-const off = d => 2.5 + d / (2 * S);   // plan px from wall line to centre of an object of depth d
+const off = d => 2.5 + d * K / (2 * S);   // plan px from wall line to centre of an object of depth d
 
 // ---------- seeded random so the house looks the same every time ----------
 let _seed = 20261009;
@@ -41,7 +43,7 @@ document.getElementById('app').appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 500);
-camera.position.set(24, 20, 28);
+camera.position.set(32, 26, 36);
 
 const pmrem = new THREE.PMREMGenerator(renderer);
 const envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
@@ -81,12 +83,16 @@ const box = (p, w, h, d, c, x = 0, y = 0, z = 0) => add(p, new THREE.BoxGeometry
 const cyl = (p, rt, rb, h, c, x = 0, y = 0, z = 0, seg = 24) => add(p, new THREE.CylinderGeometry(rt, rb, h, seg), c, x, y + h / 2, z);
 const sph = (p, r, c, x = 0, y = 0, z = 0, seg = 20) => add(p, new THREE.SphereGeometry(r, seg, Math.ceil(seg * 0.7)), c, x, y, z);
 const G = () => new THREE.Group();
+// put() scales furniture by K, including its height above the floor (y)
 function put(parent, obj, px, py, rot = 0, y = 0) {
-  obj.position.set(X(px), y, Z(py));
+  obj.position.set(X(px), y * K, Z(py));
   obj.rotation.y = rot;
+  obj.scale.setScalar(K);
   parent.add(obj);
   return obj;
 }
+// putAt() hangs things at an absolute height (ceiling fixtures, roof items)
+function putAt(parent, obj, px, py, rot, yAbs) { put(parent, obj, px, py, rot); obj.position.y = yAbs; return obj; }
 
 // ---------- canvas textures ----------
 function ctex(w, h, draw, repeat = true) {
@@ -1133,7 +1139,7 @@ const POOL = { x: 380, y: 560, w: 260, h: 150 };
 // =====================================================================
 //  Walls (built from room outlines, with doors / windows / openings)
 // =====================================================================
-const occluders = [[], []];
+const occluders = [[], [], []];   // ground, first floor, roof
 function gapType(gaps, o, at, pos) {
   for (const g of gaps) if (g[0] === o && g[1] === at && pos >= g[2] && pos + 5 <= g[3]) return g[4];
   return 'wall';
@@ -1148,8 +1154,8 @@ function runs(cells) {
 }
 function pieces(type, H) {
   if (type === 'wall') return [[0, H]];
-  if (type === 'door') return [[2.15, H]];
-  if (type === 'window') return [[0, 0.9], [2.1, H]];
+  if (type === 'door') return [[DOOR_H, H]];
+  if (type === 'window') return [[0, SILL], [WIN_TOP, H]];
   return [];
 }
 function fadeMat(color) {
@@ -1176,17 +1182,18 @@ function buildWalls(parent, rooms, gaps, H, level) {
         occluders[level].push(m);
       }
       if (run.type === 'window') {
-        const gl = o === 'h' ? new THREE.BoxGeometry(len, 1.2, 0.03) : new THREE.BoxGeometry(0.03, 1.2, len);
-        add(parent, gl, glassMat, cx, 1.5, cz, false);
+        const gh = WIN_TOP - SILL, gy = (WIN_TOP + SILL) / 2;
+        const gl = o === 'h' ? new THREE.BoxGeometry(len, gh, 0.03) : new THREE.BoxGeometry(0.03, gh, len);
+        add(parent, gl, glassMat, cx, gy, cz, false);
         const sill = o === 'h' ? new THREE.BoxGeometry(len + 0.1, 0.05, WT + 0.12) : new THREE.BoxGeometry(WT + 0.12, 0.05, len + 0.1);
-        add(parent, sill, '#ffffff', cx, 0.9, cz);
-        const mull = o === 'h' ? new THREE.BoxGeometry(0.04, 1.2, 0.05) : new THREE.BoxGeometry(0.05, 1.2, 0.04);
-        add(parent, mull, '#ffffff', cx, 1.5, cz, false);
+        add(parent, sill, '#ffffff', cx, SILL, cz);
+        const mull = o === 'h' ? new THREE.BoxGeometry(0.04, gh, 0.05) : new THREE.BoxGeometry(0.05, gh, 0.04);
+        add(parent, mull, '#ffffff', cx, gy, cz, false);
       }
       if (run.type === 'door') {
         for (const end of [run.from, run.to]) {
           const ex = o === 'h' ? X(end) : X(at), ez = o === 'h' ? Z(at) : Z(end);
-          add(parent, new THREE.BoxGeometry(o === 'h' ? 0.06 : WT + 0.05, 2.15, o === 'h' ? WT + 0.05 : 0.06), '#a47148', ex, 1.075, ez);
+          add(parent, new THREE.BoxGeometry(o === 'h' ? 0.06 : WT + 0.05, DOOR_H, o === 'h' ? WT + 0.05 : 0.06), '#a47148', ex, DOOR_H / 2, ez);
         }
       }
     }
@@ -1246,6 +1253,7 @@ function railing(parent, o, at, from, to, kind = 'glass', h = 1.0) {
 //  Build the world
 // =====================================================================
 const site = G(); scene.add(site);
+const ROAD_Z = Z(50) - 1.2 - 3.5;   // road centre line
 const ground = G(); scene.add(ground);
 const upper = G(); upper.position.y = FH; scene.add(upper);
 const upperExtras = [];   // first-floor things that live directly in the scene
@@ -1262,10 +1270,10 @@ scene.fog = new THREE.Fog('#cfe6ff', 80, 230);
 const hemi = new THREE.HemisphereLight('#dff1ff', '#8aa86a', 1.25);
 scene.add(hemi);
 const sun = new THREE.DirectionalLight('#fff4e0', 2.6);
-sun.position.set(-14, 26, 16);
+sun.position.set(-18, 34, 20);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
-Object.assign(sun.shadow.camera, { left: -16, right: 16, top: 16, bottom: -16, near: 1, far: 70 });
+Object.assign(sun.shadow.camera, { left: -20, right: 20, top: 20, bottom: -20, near: 1, far: 90 });
 sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.02;
 scene.add(sun);
 const amb = new THREE.AmbientLight('#ffffff', 0.25);
@@ -1273,10 +1281,10 @@ scene.add(amb);
 
 // night-time room lights (always in the scene so shaders never recompile)
 const nightLights = [];
-[[170, 300, 2.5, '#ffd9a0'], [385, 260, 2.5, '#fff0d0'], [575, 410, 2.4, '#c77dff'], [145, 515, 2.4, '#ffc8dd'], [400, 470, 2.4, '#ffe8b0'],
- [510, 635, -0.4, '#29d3ff'], [300, 120, 2.2, '#ffd27a'], [180, 680, 2.2, '#ffd27a'],
- [140, 290, FH + 2.4, '#ffd9f0'], [400, 290, FH + 2.4, '#fff0c9'], [575, 410, FH + 2.4, '#cde6ff'], [145, 525, FH + 2.4, '#fff3a8'], [575, 180, FH + 2.2, '#ffd27a']]
-  .forEach(([px, py, y, c]) => { const l = new THREE.PointLight(c, 0, 10, 1.6); l.position.set(X(px), y, Z(py)); scene.add(l); nightLights.push(l); });
+[[170, 300, 2.9, '#ffd9a0'], [385, 260, 2.9, '#fff0d0'], [575, 410, 2.8, '#c77dff'], [145, 515, 2.8, '#ffc8dd'], [400, 470, 2.8, '#ffe8b0'],
+ [510, 635, -0.4, '#29d3ff'], [300, 120, 2.6, '#ffd27a'], [180, 680, 2.6, '#ffd27a'],
+ [140, 290, FH + 2.6, '#ffd9f0'], [400, 290, FH + 2.6, '#fff0c9'], [575, 410, FH + 2.6, '#cde6ff'], [145, 525, FH + 2.6, '#fff3a8'], [575, 180, FH + 2.5, '#ffd27a']]
+  .forEach(([px, py, y, c]) => { const l = new THREE.PointLight(c, 0, 13, 1.6); l.position.set(X(px), y, Z(py)); scene.add(l); nightLights.push(l); });
 
 // ---------- land, road, hills ----------
 {
@@ -1292,9 +1300,10 @@ const nightLights = [];
   // ShapeGeometry UVs are world units: scale texture accordingly
   const land = new THREE.Mesh(geo, gm); land.position.y = -0.06; land.receiveShadow = true; site.add(land);
 
-  add(site, new THREE.BoxGeometry(300, 0.04, 40 * S), texMat('asphalt', '#4a525e', null, 300, 40 * S), 0, -0.04, Z(22), false);
-  for (let x = -60; x < 60; x += 3) add(site, new THREE.BoxGeometry(1.4, 0.01, 0.12), '#ffffff', x, -0.015, Z(22), false);
-  add(site, new THREE.BoxGeometry(300, 0.08, 8 * S), '#d7d2cb', 0, -0.04, Z(46), false);
+  // a proper 7 m road with a footpath in front of the plot
+  add(site, new THREE.BoxGeometry(300, 0.04, 7), texMat('asphalt', '#4a525e', null, 300, 7), 0, -0.04, ROAD_Z, false);
+  for (let x = -80; x < 80; x += 4) add(site, new THREE.BoxGeometry(2, 0.01, 0.15), '#ffffff', x, -0.015, ROAD_Z, false);
+  add(site, new THREE.BoxGeometry(300, 0.1, 1.2), '#d7d2cb', 0, -0.03, Z(50) - 0.6, false);
 
   // distant hills
   for (let i = 0; i < 14; i++) {
@@ -1304,9 +1313,9 @@ const nightLights = [];
   }
   // neighbourhood trees
   for (let i = 0; i < 70; i++) {
-    const x = rr(-55, 55), z = rr(-55, 55);
-    if (Math.abs(x) < 12 && Math.abs(z) < 13) continue;
-    if (z > -14 && z < -9.5) continue;
+    const x = rr(-70, 70), z = rr(-70, 70);
+    if (Math.abs(x) < 16 && Math.abs(z) < 17) continue;
+    if (Math.abs(z - ROAD_Z) < 5) continue;
     const t = tree(pick(['round', 'pine', 'round', 'blossom']), rr(3, 6));
     t.position.set(x, 0, z); site.add(t);
   }
@@ -1316,9 +1325,9 @@ const nightLights = [];
 {
   const flo = (x, y, w, h, type, c, top = 0, thick = 0.06) => add(site, new THREE.BoxGeometry(w * S, thick, h * S), texMat(type, c, null, w * S, h * S), X(x) + w * S / 2, top - thick / 2, Z(y) + h * S / 2, false);
   flo(40, 50, 430, 140, 'grass', '#8fd16a', 0.0);
-  flo(170, 46, 35, 144, 'paving', '#e6d3b3', 0.012);
+  flo(170, 20, 35, 170, 'paving', '#e6d3b3', 0.012);
   flo(470, 50, 210, 260, 'paving', '#cfd4dc', 0.005);
-  flo(470, 40, 210, 10, 'paving', '#bfc5ce', 0.005);
+  flo(470, 20, 210, 30, 'paving', '#bfc5ce', 0.005);
   flo(40, 600, 290, 150, 'grass', '#8fd16a', 0.0);
   // deck around the pool
   flo(330, 510, 350, 50, 'deck', '#e3b97f', 0.01, 0.1);
@@ -1432,7 +1441,7 @@ function fence(parent, segs) {
   put(site, evCharger(), 680 - off(0.22), 255, EA, 0.005);
   put(site, bicycle(), 520, 285, WE, 0.005);
   put(site, plant(1.0, '#7b5cff', 'tall'), 490, 295, 0, 0.005);
-  [[475, 55], [675, 55], [675, 305]].forEach(([x, y]) => put(site, (() => { const g = G(); box(g, 0.3, FH, 0.3, '#f8f3ea'); return g; })(), x, y));
+  [[475, 55], [675, 55], [675, 305]].forEach(([x, y]) => box(site, 0.35, FH, 0.35, '#f8f3ea', X(x), 0, Z(y)));
   box(site, 1.9, 0.02, 0.12, '#ffffff', X(560), 0.01, Z(120)); box(site, 0.12, 0.02, 4.2, '#ffffff', X(568), 0.01, Z(170));
   // back garden
   put(site, swingSet(), 110, 700, 0);
@@ -1446,22 +1455,24 @@ function fence(parent, segs) {
   [[160, 742], [290, 690], [45, 690]].forEach(([x, y]) => put(site, bush(0.32), x, y));
 }
 
-// ---------- stairs (U-shaped) ----------
+// ---------- stairs (stacked U-shaped: ground -> first floor -> roof) ----------
+const sideMat = M('#e0d6c8', 0.7), treadMat = M('#a47148', 0.6);
+function stairFlights(parent, base, solid) {
+  const r = FH / 20;    // riser height (20 risers per storey)
+  const step = (px, py, top) => {
+    const h = solid ? top - base : 0.22;
+    add(parent, new THREE.BoxGeometry(40 * S, h, 10 * S), sideMat, X(px), top - h / 2, Z(py));
+    add(parent, new THREE.BoxGeometry(40 * S, 0.02, 10 * S), treadMat, X(px), top + 0.01, Z(py));
+  };
+  for (let i = 0; i < 10; i++) step(270, 470 + i * 10 + 5, base + (i + 1) * r);            // flight going south
+  const lh = solid ? FH / 2 : 0.25;                                                           // half landing
+  add(parent, new THREE.BoxGeometry(80 * S, lh, 30 * S), sideMat, X(290), base + FH / 2 - lh / 2, Z(585));
+  add(parent, new THREE.BoxGeometry(80 * S, 0.02, 30 * S), treadMat, X(290), base + FH / 2 + 0.01, Z(585));
+  for (let j = 0; j < 10; j++) step(310, 570 - j * 10 - 5, base + FH / 2 + (j + 1) * r);    // flight going north
+}
+stairFlights(ground, 0, true);
 {
-  const stepMat = M('#f2ebe0', 0.5), sideMat = M('#e0d6c8', 0.7);
-  for (let i = 0; i < 10; i++) {
-    const top = (i + 1) * 0.15;
-    add(ground, new THREE.BoxGeometry(40 * S, top, 10 * S), i % 2 ? stepMat : sideMat, X(270), top / 2, Z(470 + i * 10 + 5));
-    add(ground, new THREE.BoxGeometry(40 * S, 0.02, 10 * S), M('#a47148', 0.6), X(270), top + 0.01, Z(470 + i * 10 + 5));
-  }
-  add(ground, new THREE.BoxGeometry(80 * S, 1.5, 30 * S), sideMat, X(290), 0.75, Z(585));
-  add(ground, new THREE.BoxGeometry(80 * S, 0.02, 30 * S), M('#a47148', 0.6), X(290), 1.51, Z(585));
-  for (let j = 0; j < 10; j++) {
-    const top = 1.5 + (j + 1) * 0.15;
-    add(ground, new THREE.BoxGeometry(40 * S, top, 10 * S), j % 2 ? stepMat : sideMat, X(310), top / 2, Z(570 - j * 10 - 5));
-    add(ground, new THREE.BoxGeometry(40 * S, 0.02, 10 * S), M('#a47148', 0.6), X(310), top + 0.01, Z(570 - j * 10 - 5));
-  }
-  const mw = add(ground, new THREE.BoxGeometry(0.12, 3.9, 100 * S), M('#f8f3ea', 0.9), X(290), 1.95, Z(520));
+  const mw = add(ground, new THREE.BoxGeometry(0.12, WH0, 100 * S), M('#f8f3ea', 0.9), X(290), WH0 / 2, Z(520));
   occluders[0].push(mw);
 }
 
@@ -1485,8 +1496,8 @@ buildWalls(ground, ROOMS0, GAPS0, WH0, 0);
   put(g, diningTable(1.8, 0.9), 110, 385);
   [88, 110, 132].forEach(x => { put(g, chair('#7f5539', '#ffd6a5'), x, 364, 0); put(g, chair('#7f5539', '#ffd6a5'), x, 406, SO); });
   put(g, chair('#7f5539', '#ffd6a5'), 66, 385, WE); put(g, chair('#7f5539', '#ffd6a5'), 154, 385, EA);
-  put(g, chandelier(), 110, 385, 0, WH0 - 0.05);
-  put(g, ceilingFan(), 100, 265, 0, WH0);
+  putAt(g, chandelier(), 110, 385, 0, WH0 - 0.05);
+  putAt(g, ceilingFan(), 100, 265, 0, WH0);
   put(g, wallArt(1.4, 0.7, 'home'), 110, 430 - off(0.04), SO, 1.35);
   put(g, wallArt(0.9, 1.1, 'abstract'), 300 - off(0.04), 375, EA, 1.2);
   put(g, plant(1.4, '#ffd23f', 'tall'), 57, 207);
@@ -1494,7 +1505,7 @@ buildWalls(ground, ROOMS0, GAPS0, WH0, 0);
   put(g, plant(0.8, '#7b5cff', 'flower'), 56, 418);
   put(g, (() => { const t = G(); box(t, 1.0, 0.85, 0.4, '#ffffff'); box(t, 0.96, 0.02, 0.01, '#ddd', 0, 0.42, 0.2); sph(t, 0.07, '#ff70a6', -0.3, 0.92, 0, 10); return t; })(), 240, 190 + off(0.4), N);
   put(g, rug(1.0, 0.6, '#ff4d8d', '#ffffff', 'stripes'), 188, 205);
-  put(g, ceilingLight(0.3), 200, 300, 0, WH0);
+  putAt(g, ceilingLight(0.3), 200, 300, 0, WH0);
   // kitchen
   const ky = 190 + off(0.6);
   put(g, fridge(), 318, 190 + off(0.7), N);
@@ -1512,25 +1523,25 @@ buildWalls(ground, ROOMS0, GAPS0, WH0, 0);
   put(g, pantry(), 300 + off(0.6), 310, WE);
   put(g, island(2.0, 0.9), 385, 292);
   [362, 385, 408].forEach(x => put(g, barStool(), x, 318));
-  put(g, pendant(), 365, 292, 0, WH0); put(g, pendant(), 405, 292, 0, WH0);
+  putAt(g, pendant(), 365, 292, 0, WH0); putAt(g, pendant(), 405, 292, 0, WH0);
   put(g, purifier(), 470 - off(0.2), 215, EA, 1.25);
   put(g, plant(0.5, '#ffffff', 'cactus'), 460, ky, N, 0.9);
   // toilet 1
   put(g, toilet(), 342, 330 + off(0.62), N);
   put(g, smallSink(), 300 + off(0.45), 395, WE);
   put(g, plant(0.6, '#2ec4b6', 'flower'), 375, 420);
-  put(g, ceilingLight(0.18), 342, 380, 0, WH0);
+  putAt(g, ceilingLight(0.18), 342, 380, 0, WH0);
   // bathroom 1
   put(g, bathtub(1.7, 0.75), 427, 330 + off(0.75), N);
   put(g, washer(), 470 - off(0.6), 395, EA);
   put(g, vanity(0.7), 385 + off(0.5), 393, WE);
   put(g, towelRack(), 427, 430 - off(0.06), SO, 0);
-  put(g, ceilingLight(0.18), 427, 380, 0, WH0);
+  putAt(g, ceilingLight(0.18), 427, 380, 0, WH0);
   // lobby
   put(g, consoleTable(1.0), 350, 510 - off(0.35), SO);
   put(g, wallArt(0.8, 0.6, 'flowers'), 330 + off(0.04), 490, WE, 1.3);
   put(g, plant(1.3, '#ff4d8d', 'tall'), 458, 497);
-  put(g, ceilingLight(0.25), 400, 470, 0, WH0);
+  putAt(g, ceilingLight(0.25), 400, 470, 0, WH0);
   // gaming room
   put(g, tv(2.4, 'game'), 680 - off(0.05), 400, EA, 0.75);
   put(g, tvCabinet(2.4, '#1b1b2f'), 680 - off(0.45), 400, EA);
@@ -1542,9 +1553,9 @@ buildWalls(ground, ROOMS0, GAPS0, WH0, 0);
   put(g, poolTable(), 560, 475);
   put(g, neonSign('GAME ON', '#ff2fd6'), 560, 510 - off(0.02), SO, 1.7);
   put(g, wallArt(0.55, 0.8, 'poster', '#ff2fd6'), 470 + off(0.04), 415, WE, 1.2);
-  put(g, discoBall(), 575, 410, 0, WH0);
+  putAt(g, discoBall(), 575, 410, 0, WH0);
   { // LED strips along the gaming-room walls
-    const y = 2.75, i = 4 / S;
+    const y = WH0 - 0.25, i = 4 / S;
     [[575, 310 + i, 200, 'h'], [575, 510 - i, 200, 'h'], [470 + i, 410, 190, 'v'], [680 - i, 410, 190, 'v']].forEach(([px, py, len, o], k) => {
       add(g, o === 'h' ? new THREE.BoxGeometry(len * S, 0.04, 0.03) : new THREE.BoxGeometry(0.03, 0.04, len * S), ledMat(k * 0.25), X(px), y, Z(py), false);
       add(g, o === 'h' ? new THREE.BoxGeometry(len * S, 0.03, 0.03) : new THREE.BoxGeometry(0.03, 0.03, len * S), ledMat(k * 0.25 + 0.5), X(px), 0.12, Z(py), false);
@@ -1560,14 +1571,19 @@ buildWalls(ground, ROOMS0, GAPS0, WH0, 0);
   put(g, ac(), 75, 430 + off(0.22), N, 2.3);
   put(g, wallArt(1.2, 0.6, 'flowers'), 40 + off(0.04), 515, WE, 1.45);
   put(g, plant(1.1, '#ffd23f'), 235, 590);
-  put(g, ceilingFan(), 145, 515, 0, WH0);
+  putAt(g, ceilingFan(), 145, 515, 0, WH0);
   // staircase hall
-  put(g, ceilingLight(0.2), 290, 450, 0, WH0);
+  putAt(g, ceilingLight(0.2), 290, 450, 0, WH0);
 }
 
 // ---------- first floor ----------
 buildFloors(upper, ROOMS1, 0, 0.2);
 buildWalls(upper, ROOMS1, GAPS1, WH1, 1);
+stairFlights(upper, 0, false);
+{
+  const mw = add(upper, new THREE.BoxGeometry(0.12, FH, 100 * S), M('#f8f3ea', 0.9), X(290), FH / 2, Z(520));
+  occluders[1].push(mw);
+}
 {
   const u = upper;
   // balcony + terrace floors and railings
@@ -1580,7 +1596,6 @@ buildWalls(upper, ROOMS1, GAPS1, WH1, 1);
   railing(u, 'h', 50, 470, 680, 'parapet');
   railing(u, 'v', 680, 50, 310, 'parapet');
   railing(u, 'v', 470, 50, 110, 'parapet');
-  railing(u, 'h', 470, 250, 290, 'glass');
   // master bedroom
   put(u, rug(2.6, 2.2, '#cdb4db', '#ffffff'), 150, 290, WE);
   put(u, bed(2.0, 2.2, '#9b5de5', '#5e3b2a'), 40 + off(2.3), 290, WE);
@@ -1591,7 +1606,7 @@ buildWalls(upper, ROOMS1, GAPS1, WH1, 1);
   put(u, tvCabinet(1.6, '#ffffff'), 240 - off(0.45), 290, EA);
   put(u, sofa(0.95, '#f15bb5', '#ffffff'), 205, 362, EA);
   put(u, ac(), 80, 390 - off(0.22), SO, 2.3);
-  put(u, chandelier(), 140, 290, 0, WH1);
+  putAt(u, chandelier(), 140, 290, 0, WH1);
   put(u, plant(1.2, '#ffffff', 'tall'), 228, 378);
   put(u, wallArt(1.3, 0.65, 'abstract2'), 40 + off(0.04), 290, WE, 1.5);
   // closet
@@ -1599,14 +1614,14 @@ buildWalls(upper, ROOMS1, GAPS1, WH1, 1);
   put(u, clothesRack(1.4), 330 - off(0.55), 245, EA);
   put(u, shoeShelf(1.2), 285, 290 - off(0.35), SO);
   put(u, fullMirror(), 240 + off(0.04), 270, WE, 0.1);
-  put(u, chandelier(), 285, 240, 0, WH1 + 0.15);
+  putAt(u, chandelier(), 285, 240, 0, WH1 + 0.15);
   // bathroom 2
   put(u, shower(0.9, 0.9), 312, 307);
   put(u, bathtub(1.7, 0.75), 280, 390 - off(0.75), SO);
   put(u, vanity(0.9, '#ffffff'), 330 - off(0.5), 345, EA);
   put(u, towelRack(['#ffd23f', '#7b5cff']), 240 + off(0.06), 290 + 15, WE, 0);
   put(u, plant(0.7, '#2ec4b6'), 252, 300);
-  put(u, ceilingLight(0.2), 285, 340, 0, WH1);
+  putAt(u, ceilingLight(0.2), 285, 340, 0, WH1);
   // family lounge
   put(u, rug(2.2, 1.6, '#ffd166', '#06d6a0', 'stripes'), 415, 330, WE);
   put(u, bookshelf(2.0, 2.2), 330 + off(0.35), 290, WE);
@@ -1617,14 +1632,14 @@ buildWalls(upper, ROOMS1, GAPS1, WH1, 1);
   put(u, sofa(0.95, '#ffd166', '#7b5cff'), 400, 372, SO);
   put(u, floorLamp(), 460, 280);
   put(u, wallArt(1.2, 0.7, 'movie'), 470 - off(0.04), 330, EA, 1.45);
-  put(u, pendant('#ffd8a8', 0.8), 410, 300, 0, WH1);
+  putAt(u, pendant('#ffd8a8', 0.8), 410, 300, 0, WH1);
   put(u, plant(1.0, '#e07a5f'), 455, 205);
   // corridor
   put(u, consoleTable(1.0), 290, 390 + off(0.35), N);
   put(u, wallArt(0.8, 0.6, 'flowers'), 100, 390 + off(0.04), N, 1.5);
   put(u, wallArt(0.6, 0.6, 'abstract'), 210, 390 + off(0.04), N, 1.5);
   put(u, plant(1.0, '#7b5cff'), 55, 440);
-  [100, 220, 340, 440].forEach(x => put(u, ceilingLight(0.18), x, 420, 0, WH1));
+  [100, 220, 340, 440].forEach(x => putAt(u, ceilingLight(0.18), x, 420, 0, WH1));
   // bedroom 3
   put(u, rug(2.6, 2.0, '#bde0fe', '#ffffff'), 585, 410, EA);
   put(u, bed(1.8, 2.1, '#4cc9f0'), 680 - off(2.2), 410, EA);
@@ -1636,7 +1651,7 @@ buildWalls(upper, ROOMS1, GAPS1, WH1, 1);
   put(u, beanBag('#ffd23f'), 615, 478);
   put(u, plant(1.2, '#2ec4b6', 'tall'), 488, 492);
   put(u, wallArt(0.9, 0.6, 'cartoon'), 470 + off(0.04), 350, WE, 1.5);
-  put(u, ceilingFan(), 580, 410, 0, WH1);
+  putAt(u, ceilingFan(), 580, 410, 0, WH1);
   // bedroom 4 (kids)
   put(u, rug(1.8, 1.8, '#ffffff', '#ffffff', 'rainbow'), 160, 525);
   put(u, bed(1.2, 2.0, '#ffd166', '#ff70a6'), 40 + off(2.1), 530, WE);
@@ -1650,12 +1665,12 @@ buildWalls(upper, ROOMS1, GAPS1, WH1, 1);
   put(u, toyBlocks(), 200, 565);
   put(u, wallStars(18, 2.2, 1.0), 40 + off(0.01), 530, WE, 1.6);
   put(u, ac(), 215, 450 + off(0.22), N, 2.3);
-  put(u, ceilingLight(0.25), 145, 525, 0, WH1);
+  putAt(u, ceilingLight(0.25), 145, 525, 0, WH1);
   // toilet 2
   put(u, toilet(), 470 - off(0.62), 480, EA);
   put(u, smallSink(), 330 + off(0.45), 480, WE);
   put(u, plant(0.6, '#ff70a6', 'flower'), 440, 462);
-  put(u, ceilingLight(0.18), 400, 480, 0, WH1);
+  putAt(u, ceilingLight(0.18), 400, 480, 0, WH1);
   // balcony
   put(u, eggChair(), 75, 150);
   put(u, roundTable(0.4), 330, 140);
@@ -1676,8 +1691,8 @@ buildWalls(upper, ROOMS1, GAPS1, WH1, 1);
   const pts = [];
   for (let x = 45; x < 470; x += 8) pts.push([X(x), FH + 1.0 + Math.sin(x * 0.07) * 0.05, Z(112)]);
   for (let i = 0; i < 4; i++) for (let k = 0; k <= 12; k++) {
-    const a = [[525, 130], [625, 130], [625, 230], [525, 230]][i], b = [[625, 130], [625, 230], [525, 230], [525, 130]][i];
-    const t = k / 12; pts.push([X(a[0] + (b[0] - a[0]) * t), FH + 2.3 - Math.sin(t * Math.PI) * 0.25, Z(a[1] + (b[1] - a[1]) * t)]);
+    const a = [[530, 135], [620, 135], [620, 225], [530, 225]][i], b = [[620, 135], [620, 225], [530, 225], [530, 135]][i];
+    const t = k / 12; pts.push([X(a[0] + (b[0] - a[0]) * t), FH + 2.55 - Math.sin(t * Math.PI) * 0.25, Z(a[1] + (b[1] - a[1]) * t)]);
   }
   const geo = new THREE.SphereGeometry(0.035, 8, 6);
   const cols = ['#ffd27a', '#ff9de2', '#9ad8ff', '#b8ff9a'];
@@ -1689,66 +1704,52 @@ buildWalls(upper, ROOMS1, GAPS1, WH1, 1);
     scene.add(inst); inst.userData.upper = true; upperExtras.push(inst);
   });
 }
-// ---------- roof ----------
+// ---------- roof: flat cement roof terrace you can walk on ----------
 const roof = G(); roof.position.y = FH + WH1; scene.add(roof);
+const roofTop = G(); roofTop.position.y = 0.2; roof.add(roofTop);       // y = 0 here is the terrace floor (2 * FH)
 {
-  const tileTex = ctex(256, 256, (g, w, h) => {
-    g.fillStyle = '#8f3b2b'; g.fillRect(0, 0, w, h);
-    const rows = 8, cols = 8, tw = w / cols, th = h / rows;
-    for (let r = 0; r < rows; r++) for (let c = -1; c < cols + 1; c++) {
-      const x = c * tw + (r % 2) * tw / 2, y = r * th;
-      g.fillStyle = shade('#c8553d', rr(-0.06, 0.05));
-      g.beginPath(); g.moveTo(x + 1, y); g.lineTo(x + tw - 1, y); g.lineTo(x + tw - 1, y + th * 0.6);
-      g.quadraticCurveTo(x + tw / 2, y + th * 1.15, x + 1, y + th * 0.6); g.closePath(); g.fill();
-      g.fillStyle = 'rgba(255,255,255,.12)'; g.fillRect(x + 3, y + 2, tw - 6, 3);
-    }
-  });
-  tileTex.repeat.set(1, 1);
-  const roofMat = new THREE.MeshStandardMaterial({ map: tileTex, roughness: 0.75, side: THREE.DoubleSide });
-  function hipRoof(px, py, pw, ph, rise, ov = 0.55) {
-    const x0 = X(px) - ov, x1 = X(px + pw) + ov, z0 = Z(py) - ov, z1 = Z(py + ph) + ov;
-    const w = x1 - x0, d = z1 - z0, cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
-    const A = [x0, 0, z0], B = [x1, 0, z0], C = [x1, 0, z1], D = [x0, 0, z1];
-    let tris;
-    if (w >= d) {
-      const r1 = [x0 + d / 2, rise, cz], r2 = [x1 - d / 2, rise, cz];
-      tris = [A, B, r2, A, r2, r1, C, D, r1, C, r1, r2, D, A, r1, B, C, r2];
-    } else {
-      const r1 = [cx, rise, z0 + w / 2], r2 = [cx, rise, z1 - w / 2];
-      tris = [A, B, r1, B, C, r2, B, r2, r1, C, D, r2, D, A, r1, D, r1, r2];
-    }
-    const pos = new Float32Array(tris.flat()), uv = new Float32Array(tris.length * 2);
-    tris.forEach((p, i) => { uv[i * 2] = p[0] / 1.6; uv[i * 2 + 1] = (p[2] + p[1] * 0.6) / 1.6; });
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
-    geo.computeVertexNormals();
-    const m = add(roof, geo, roofMat, 0, 0.12, 0);
-    // eaves: fascia boards and a soffit slab
-    const fas = M('#ffffff', 0.6);
-    add(roof, new THREE.BoxGeometry(w, 0.18, 0.06), fas, cx, 0.06, z0);
-    add(roof, new THREE.BoxGeometry(w, 0.18, 0.06), fas, cx, 0.06, z1);
-    add(roof, new THREE.BoxGeometry(0.06, 0.18, d), fas, x0, 0.06, cz);
-    add(roof, new THREE.BoxGeometry(0.06, 0.18, d), fas, x1, 0.06, cz);
-    add(roof, new THREE.BoxGeometry(w, 0.04, d), M('#f3ece2', 0.9), cx, 0.0, cz);
-    return { cx, cz, w, d, z1, rise };
-  }
-  const main = hipRoof(40, 190, 430, 410, 2.6);
-  hipRoof(470, 310, 210, 200, 2.0);
-  // chimney
-  const ch = G(); put(roof, ch, 120, 300);
-  box(ch, 0.7, 2.6, 0.7, '#a0522d'); box(ch, 0.85, 0.15, 0.85, '#6d3b1f', 0, 2.6, 0);
-  // solar panels on the south slope
-  const slope = Math.atan2(main.rise, main.d / 2);
-  const solar = G(); roof.add(solar);
-  solar.position.set(X(255), main.rise * 0.42 + 0.2, main.cz + (main.d / 2) * 0.58);
-  solar.rotation.x = slope;
+  const concrete = (w, d) => {
+    const t = ctex(256, 256, (g, W, H) => {
+      g.fillStyle = '#c9c4bc'; g.fillRect(0, 0, W, H);
+      for (let k = 0; k < 4000; k++) { g.fillStyle = shade('#c9c4bc', rr(-0.07, 0.05)); g.fillRect(rr(0, W), rr(0, H), 2, 2); }
+      g.strokeStyle = 'rgba(90,85,80,.35)'; g.lineWidth = 2; g.strokeRect(1, 1, W - 2, H - 2);
+    });
+    t.repeat.set(w / 2.5, d / 2.5);
+    return new THREE.MeshStandardMaterial({ map: t, roughness: 0.95 });
+  };
+  // RCC slab (leaves the stairwell open; the stair room covers it)
+  [[40, 190, 430, 260], [40, 450, 210, 150], [330, 450, 140, 60], [250, 450, 80, 20], [470, 310, 210, 200]].forEach(([x, y, w, h]) =>
+    add(roof, new THREE.BoxGeometry(w * S, 0.2, h * S), concrete(w * S, h * S), X(x) + w * S / 2, 0.1, Z(y) + h * S / 2));
+  // parapet walls
+  [['h', 190, 40, 470], ['v', 470, 190, 310], ['h', 310, 470, 680], ['v', 680, 310, 510], ['h', 510, 330, 680],
+   ['h', 600, 40, 250], ['v', 40, 190, 600]].forEach(([o, at, a, b]) => railing(roofTop, o, at, a, b, 'parapet', 1.05));
+  // stair room ("mumty") over the staircase, with a door onto the terrace
+  buildWalls(roofTop, [{ x: 250, y: 450, w: 80, h: 150, paint: '#f3ead9' }], [['h', 450, 290, 330, 'door']], 2.7, 2);
+  add(roofTop, new THREE.BoxGeometry(90 * S, 0.15, 160 * S), M('#bdb7ae', 0.95), X(290), 2.775, Z(525));
+  // water tank on the stair room
+  const tank = G();
+  cyl(tank, 0.7, 0.7, 1.3, '#1c1c1c', 0, 0, 0, 28);
+  cyl(tank, 0.72, 0.72, 0.06, '#2b2b2b', 0, 0.45, 0, 28); cyl(tank, 0.72, 0.72, 0.06, '#2b2b2b', 0, 0.9, 0, 28);
+  cyl(tank, 0.25, 0.25, 0.1, '#2b2b2b', 0, 1.3, 0, 20);
+  putAt(roofTop, tank, 290, 525, 0, 2.85);
+  // solar panels on frames, tilted to face south
   const panelTex = ctex(128, 128, (g, w, h) => { g.fillStyle = '#1d3b6e'; g.fillRect(0, 0, w, h); g.strokeStyle = '#8fb3e8'; g.lineWidth = 2; for (let i = 0; i <= 4; i++) { g.beginPath(); g.moveTo(i * w / 4, 0); g.lineTo(i * w / 4, h); g.stroke(); g.beginPath(); g.moveTo(0, i * h / 4); g.lineTo(w, i * h / 4); g.stroke(); } }, false);
   const pm = new THREE.MeshStandardMaterial({ map: panelTex, roughness: 0.2, metalness: 0.5, envMap: envTex });
-  for (let i = 0; i < 4; i++) for (let j = 0; j < 2; j++) box(solar, 1.0, 0.05, 1.6, pm, -1.65 + i * 1.1, 0, -0.85 + j * 1.7);
-  // little skylight
-  const sky = G(); roof.add(sky); sky.position.set(X(400), main.rise * 0.45 + 0.15, main.cz + (main.d / 2) * 0.55); sky.rotation.x = slope;
-  box(sky, 1.2, 0.12, 0.9, '#ffffff'); box(sky, 1.0, 0.03, 0.7, glassMat, 0, 0.12, 0);
+  for (let row = 0; row < 2; row++) for (let i = 0; i < 4; i++) {
+    const sp = G();
+    [-0.45, 0.45].forEach(x => { box(sp, 0.06, 1.1, 0.06, '#9aa5b1', x, 0, -0.55); box(sp, 0.06, 0.45, 0.06, '#9aa5b1', x, 0, 0.55); });
+    const p = box(sp, 1.0, 0.05, 1.6, pm, 0, 0.75, 0); p.rotation.x = 0.45;
+    put(roofTop, sp, 75 + i * 40, 245 + row * 80);
+  }
+  // seating, plants, clothesline
+  put(roofTop, umbrella('#2ec4b6'), 420, 290);
+  put(roofTop, roundTable(0.4), 420, 290);
+  put(roofTop, chair('#333', '#ffd23f'), 398, 290, WE); put(roofTop, chair('#333', '#ffd23f'), 442, 290, EA);
+  [[60, 210], [455, 210], [455, 430], [60, 585], [235, 585], [660, 330], [660, 495], [490, 495]].forEach(([x, y], i) =>
+    put(roofTop, plant(1.0, ['#ff4d8d', '#ffd23f', '#2ec4b6', '#7b5cff'][i % 4], ['leafy', 'flower', 'tall'][i % 3]), x, y));
+  [0, 1].forEach(i => box(roofTop, 0.06, 1.8, 0.06, '#9aa5b1', X(560 + i * 90), 0, Z(420)));
+  add(roofTop, new THREE.BoxGeometry(90 * S, 0.012, 0.012), '#eeeeee', X(605), 1.75, Z(420), false);
+  for (let i = 0; i < 6; i++) box(roofTop, 0.35, 0.55, 0.02, pick(CLOTHES), X(568 + i * 13), 1.2, Z(420));
 }
 flowers(upper, 505, 90, 650, 110, 40, 0.02);
 buildFlowers();
@@ -1816,11 +1817,12 @@ function makeShreya() {
   const tag = new THREE.Sprite(new THREE.SpriteMaterial({ map: textSign('Shreya ✨', '#ffffff', 512, 128, 'bold 64px Poppins, sans-serif', '#ff4d8d'), transparent: true }));
   tag.scale.set(0.9, 0.225, 1); tag.position.y = 2.1; tag.renderOrder = 10; root.add(tag);
   root.traverse(o => { if (o.isMesh) o.castShadow = true; });
+  root.scale.setScalar(0.92);
   return { root, legs, arms, head, pony };
 }
 const shreya = makeShreya();
 scene.add(shreya.root);
-shreya.root.position.set(X(188), 0, Z(15));
+shreya.root.position.set(X(188), 0, Z(50) - 2.4);
 let heading = 0;         // radians, 0 = facing +z (south)
 
 // =====================================================================
@@ -1839,7 +1841,7 @@ const TOUR = [
   { room: 'Back Garden', floor: 0, path: [[355, 540], [355, 620], [210, 665]], look: [110, 700], say: 'This is the back garden, with a swing set, a bench, a bird bath and lots of trees. Perfect for evening walks.' },
   { room: 'Bedroom 1 (Guest)', floor: 0, path: [[165, 630], [165, 585], [160, 515]], look: [70, 515], say: 'Bedroom 1 is our guest room: a cozy queen bed, a wardrobe, a study desk and AC. Guests love it here!' },
   { room: 'Staircase', floor: 0, path: [[225, 470], [225, 415], [268, 418]], look: [270, 520], say: "Now let's head upstairs to see the rest of the house!" },
-  { room: 'First Floor Corridor', floor: 1, upper: true, path: [[270, 455, 0], [270, 470, 0], [270, 570, 1.5], [270, 586, 1.5], [310, 586, 1.5], [310, 570, 1.5], [310, 470, FH], [310, 430, FH]], look: [200, 420], say: 'Welcome to the first floor! This corridor connects all the bedrooms, and the glass railing keeps the stairs safe.' },
+  { room: 'First Floor Corridor', floor: 1, upper: true, path: [[270, 455, 0], [270, 470, 0], [270, 570, FH / 2], [270, 586, FH / 2], [310, 586, FH / 2], [310, 570, FH / 2], [310, 470, FH], [310, 430, FH]], look: [200, 420], say: 'Welcome to the first floor! This corridor connects all the bedrooms, and the glass railing keeps the stairs safe.' },
   { room: 'Master Bedroom', floor: 1, path: [[165, 420], [165, 365], [140, 300]], look: [76, 290], say: 'The master bedroom: a king-size bed, a dressing table, a TV, AC, and a door straight out to the balcony.' },
   { room: 'Closet Area', floor: 1, path: [[225, 240], [282, 240]], look: [285, 195], say: 'Every girl’s dream: a walk-in closet with racks of clothes, shoes, bags and a full-length mirror!' },
   { room: 'Bathroom 2', floor: 1, path: [[225, 240], [225, 340], [282, 340]], look: [285, 380], say: 'Bathroom 2 is attached to the master bedroom, with a rain shower, a bathtub and a double vanity.' },
@@ -1849,7 +1851,8 @@ const TOUR = [
   { room: 'Bedroom 3', floor: 1, path: [[575, 255], [500, 255], [450, 255], [395, 250], [365, 300], [365, 420], [490, 420], [575, 410]], look: [645, 410], say: 'Bedroom 3 has a queen bed, a big wardrobe, a study desk and a window looking down on the pool.' },
   { room: 'Toilet 2', floor: 1, path: [[490, 420], [395, 425], [395, 472]], look: [395, 500], say: 'Toilet 2 is up here on the first floor, so nobody has to run downstairs!' },
   { room: 'Bedroom 4 (Kids)', floor: 1, path: [[395, 425], [165, 425], [165, 470], [150, 525]], look: [70, 530], say: "And finally, Bedroom 4, a fun kids' room with a teddy bear, a play tent, toy blocks, a globe and glow-in-the-dark stars!" },
-  { room: 'Goodbye!', floor: 1, path: [], look: null, say: "That's my dream house! Thank you so much for visiting. Feel free to explore on your own. See you soon!" },
+  { room: 'Roof Terrace', floor: 2, path: [[165, 470, FH], [165, 425, FH], [268, 440, FH], [270, 458, FH], [270, 470, FH], [270, 570, FH * 1.5], [270, 586, FH * 1.5], [310, 586, FH * 1.5], [310, 570, FH * 1.5], [310, 470, FH * 2], [310, 435, FH * 2], [330, 390, FH * 2], [370, 345, FH * 2]], look: [150, 285], say: 'And now, up to the roof terrace! Solar panels power the house, the water tank sits on top of the stair room, and from up here you can see the whole neighbourhood.' },
+  { room: 'Goodbye!', floor: 2, path: [], look: null, say: "That's my dream house! Thank you so much for visiting. Feel free to explore on your own. See you soon!" },
 ];
 
 // =====================================================================
@@ -1894,13 +1897,13 @@ function speak(text) {
 function stopSpeech() { if ('speechSynthesis' in window) speechSynthesis.cancel(); }
 
 function setChip(text) { ui.chip.textContent = '📍 ' + text; }
-function floorName(f) { return f ? 'First Floor' : 'Ground Floor'; }
+function floorName(f) { return ['Ground Floor', 'First Floor', 'Roof'][f]; }
 
 function startStep(i) {
   if (i >= TOUR.length) { endTour(); return; }
   state.step = i;
   const st = TOUR[i];
-  const base = st.floor ? FH : 0;
+  const base = st.floor * FH;
   state.queue = st.path.map(p => new THREE.Vector3(X(p[0]), p[2] !== undefined ? p[2] : base, Z(p[1])));
   state.phase = 'walk';
   setChip(`${st.room} · ${floorName(st.floor)}`);
@@ -1913,7 +1916,7 @@ function startTour() {
   closeIntro();
   stopSpeech();
   state.mode = 'tour'; state.paused = false;
-  shreya.root.position.set(X(188), 0, Z(15));
+  shreya.root.position.set(X(188), 0, Z(50) - 2.4);
   controls.enabled = false;
   ui.tour.textContent = '↺ Restart'; ui.pause.disabled = false; ui.next.disabled = false;
   ui.pause.textContent = '⏸ Pause'; ui.explore.classList.remove('on');
@@ -1928,7 +1931,7 @@ function enterExplore(fromTour = false) {
   if (!fromTour) stopSpeech();
   state.mode = 'explore'; state.phase = 'idle'; state.paused = false;
   controls.enabled = true;
-  controls.target.set(0, 1.5, 0);
+  controls.target.set(0, 3, 0);
   ui.explore.classList.add('on'); ui.pause.disabled = true; ui.next.disabled = true;
   ui.tour.textContent = '▶ Tour';
   setChip('Explore mode · drag to look around');
@@ -1939,7 +1942,7 @@ function closeIntro() { $('intro').classList.add('gone'); }
 
 ui.tour.onclick = startTour;
 $('iTour').onclick = startTour;
-$('iExplore').onclick = () => { enterExplore(); camera.position.set(22, 18, 24); };
+$('iExplore').onclick = () => { enterExplore(); camera.position.set(30, 24, 32); };
 ui.explore.onclick = () => enterExplore();
 ui.pause.onclick = () => {
   state.paused = !state.paused;
@@ -1993,7 +1996,7 @@ applyDayNight();
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.maxPolarAngle = Math.PI * 0.49;
-controls.minDistance = 4; controls.maxDistance = 70;
+controls.minDistance = 4; controls.maxDistance = 95;
 controls.target.set(0, 1.5, 0);
 controls.enabled = false;
 
@@ -2018,7 +2021,7 @@ function drawMinimap(level) {
   mctx.strokeStyle = '#fff'; mctx.lineWidth = 6; mctx.stroke();
   mctx.restore();
   mctx.fillStyle = '#2b2140'; mctx.font = '600 22px Poppins, sans-serif';
-  mctx.fillText(level ? 'FIRST FLOOR' : 'GROUND FLOOR', 12, H - 10);
+  mctx.fillText(shreya.root.position.y > FH + 1 ? 'ROOF TERRACE' : level ? 'FIRST FLOOR' : 'GROUND FLOOR', 12, H - 10);
 }
 
 // =====================================================================
@@ -2037,7 +2040,7 @@ function updateShreya(dt, time) {
       if (state.queue.length) {
         const target = state.queue[0];
         tmp.subVectors(target, r.position);
-        const dist = tmp.length(), stepLen = 1.7 * dt;
+        const dist = tmp.length(), stepLen = 2.3 * dt;
         if (dist <= stepLen) { r.position.copy(target); state.queue.shift(); }
         else {
           r.position.addScaledVector(tmp, stepLen / dist);
@@ -2104,14 +2107,14 @@ function upperVisible() {
 }
 function roofVisible() {
   if (state.mode === 'intro') return true;
-  if (state.mode === 'tour') return state.step < 2 && shreya.root.position.y < 1.0;
+  if (state.mode === 'tour') return (state.step < 2 && shreya.root.position.y < 1.0) || shreya.root.position.y > FH + 0.6;
   return state.floorView === 'roof';
 }
 function updateCamera(dt, time) {
   if (state.mode === 'intro') {
     const a = time * 0.08;
-    camera.position.set(Math.sin(a) * 30, 17, Math.cos(a) * 30);
-    camera.lookAt(0, 1.5, 0);
+    camera.position.set(Math.sin(a) * 40, 23, Math.cos(a) * 40);
+    camera.lookAt(0, 3, 0);
     return;
   }
   if (state.mode === 'explore') { controls.update(); return; }
@@ -2119,7 +2122,7 @@ function updateCamera(dt, time) {
   const p = shreya.root.position;
   const outside = state.step <= 2;
   camState.yaw = angLerp(camState.yaw, heading + Math.PI, Math.min(1, dt * 1.2));
-  const dist = outside ? 9 : 5.6, hgt = outside ? 6.5 : 4.6;
+  const dist = outside ? 12 : 6.6, hgt = outside ? 8 : 5.6;
   tmp.set(p.x + Math.sin(camState.yaw) * dist, p.y + hgt, p.z + Math.cos(camState.yaw) * dist);
   const k = 1 - Math.exp(-dt * 2.2);
   camState.pos.lerp(tmp, k);
@@ -2130,9 +2133,8 @@ function updateCamera(dt, time) {
 
 function updateFading(dt) {
   const fadeOn = state.mode === 'tour';
-  const lists = upper.visible ? [...occluders[0], ...occluders[1]] : occluders[0];
-  for (const m of occluders[0]) m.material.userData.target = 1;
-  for (const m of occluders[1]) m.material.userData.target = 1;
+  const lists = [...occluders[0], ...(upper.visible ? occluders[1] : []), ...(roof.visible ? occluders[2] : [])];
+  for (const arr of occluders) for (const m of arr) m.material.userData.target = 1;
   if (fadeOn) {
     // cast a fan of rays from the camera towards Shreya and what she is showing
     const p = shreya.root.position, st = TOUR[state.step];
