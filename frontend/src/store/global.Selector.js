@@ -1,0 +1,9 @@
+export const selectProfile = (s) => s.global.profile;
+export const selectRoomCode = (s) => s.global.roomCode;
+export const selectLastRoom = (s) => s.global.lastRoom;
+export const selectMe = (s) => s.global.me;
+export const selectPlayers = (s) => s.global.players;
+export const selectChat = (s) => s.global.chat;
+export const selectGame = (s) => s.global.game;
+export const selectConnected = (s) => s.global.connected;
+export const selectCreating = (s) => s.global.creating;
